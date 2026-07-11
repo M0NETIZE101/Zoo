@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>🦁 Zoo Explorer - Magic Window</title>
+    <title>🦁 Zoo Explorer</title>
     
     <link rel="stylesheet" href="css/style.css" />
     
@@ -17,87 +17,21 @@
     </script>
 </head>
 <body>
-    <!-- ===== LOADING ===== -->
     <div id="loading">
         <div class="spinner"></div>
         <p id="loading-text">🦁 Loading Zoo Explorer...</p>
-        <p class="sub-text">Preparing your wildlife adventure</p>
     </div>
 
-    <!-- ===== START SCREEN ===== -->
     <div id="start-screen">
         <div class="card">
             <div class="logo">🦁</div>
             <h1>Zoo Explorer</h1>
-            <p>Move your phone to explore<br>the wild animal kingdom!</p>
+            <p>Move your phone to explore the wild animal kingdom!</p>
             <button id="start-btn">🌿 Enter the Zoo</button>
-            <p id="status-text" class="status">Ready</p>
         </div>
     </div>
 
-    <!-- ===== GAME CONTAINER ===== -->
     <div id="game-container"></div>
-
-    <!-- ===== UI OVERLAY ===== -->
-    <div id="ui-overlay" style="display: none;">
-        <!-- Top Bar -->
-        <div id="top-bar">
-            <div id="collection-count">
-                <span>🐾</span>
-                <span id="animal-count">0</span>
-                <span>/ 10</span>
-            </div>
-            <div id="current-animal">
-                <span id="animal-name">🌿 Exploring</span>
-            </div>
-        </div>
-
-        <!-- Animal Info Popup -->
-        <div id="animal-info" style="display: none;">
-            <div class="info-card">
-                <h2 id="info-name">Lion</h2>
-                <p id="info-fact">King of the jungle!</p>
-                <button id="info-close-btn">✕</button>
-            </div>
-        </div>
-
-        <!-- Bottom Controls -->
-        <div id="bottom-controls">
-            <button id="camera-btn" class="control-btn">
-                <span class="icon">📸</span>
-                <span class="label">Photo</span>
-            </button>
-            <button id="reset-btn" class="control-btn">
-                <span class="icon">🔄</span>
-                <span class="label">Reset</span>
-            </button>
-            <button id="share-btn" class="control-btn">
-                <span class="icon">📤</span>
-                <span class="label">Share</span>
-            </button>
-        </div>
-
-        <!-- Guidance -->
-        <div id="guidance">
-            <span class="icon">📱</span>
-            <span class="text">Move your phone to look around</span>
-        </div>
-    </div>
-
-    <!-- ===== TOAST ===== -->
-    <div id="toast"></div>
-
-    <!-- ===== PHOTO PREVIEW ===== -->
-    <div id="photo-preview" style="display: none;">
-        <div class="preview-card">
-            <img id="captured-image" src="" alt="Zoo Photo" />
-            <div class="preview-actions">
-                <button id="preview-close-btn">✕ Close</button>
-                <button id="preview-share-btn">📤 Share</button>
-                <button id="preview-download-btn">💾 Save</button>
-            </div>
-        </div>
-    </div>
 
     <script type="module" src="js/main.js"></script>
 </body>
