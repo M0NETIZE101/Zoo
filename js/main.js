@@ -1,5 +1,5 @@
 /* ============================================================
-   MAIN - Zoo Explorer (Full Working Version)
+   MAIN - Zoo Explorer
    ============================================================ */
 
 import * as THREE from 'three';
@@ -16,6 +16,7 @@ const loading = document.getElementById('loading');
 const loadingText = document.getElementById('loading-text');
 const startScreen = document.getElementById('start-screen');
 const startBtn = document.getElementById('start-btn');
+const statusText = document.getElementById('status-text');
 
 // ============================================================
 // STATE
@@ -79,6 +80,11 @@ async function init() {
         // Start button
         startBtn.addEventListener('click', startExperience);
         
+        // Show status
+        if (statusText) {
+            statusText.textContent = '📱 Tap "Enter the Zoo" to start';
+        }
+        
     } catch (error) {
         console.error('❌ Error:', error);
         loadingText.textContent = '❌ Error: ' + error.message;
@@ -89,6 +95,7 @@ async function init() {
 // START EXPERIENCE
 // ============================================================
 function startExperience() {
+    console.log('🚀 Starting experience...');
     startScreen.classList.add('hidden');
     isRunning = true;
     
@@ -102,6 +109,19 @@ function startExperience() {
                     orientation.gamma
                 );
             }
+        },
+        onPermission: (granted) => {
+            if (granted) {
+                console.log('✅ Motion permission granted!');
+                if (statusText) {
+                    statusText.textContent = '📱 Motion active! Move your phone.';
+                }
+            } else {
+                console.log('ℹ️ Using touch controls');
+                if (statusText) {
+                    statusText.textContent = '🖱️ Drag to look around';
+                }
+            }
         }
     });
     
@@ -110,8 +130,10 @@ function startExperience() {
         if (!isRunning) return;
         requestAnimationFrame(animate);
         const time = performance.now() / 1000;
-        scene.update(time);
-        scene.render();
+        if (scene) {
+            scene.update(time);
+            scene.render();
+        }
     }
     animate();
     
