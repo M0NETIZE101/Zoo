@@ -1,5 +1,5 @@
 /* ============================================================
-   SENSORS - Motion Handling (DESKTOP FIXED)
+   SENSORS - Motion Handling (ANDROID DEBUG FIX)
    ============================================================ */
 
 export class MotionController {
@@ -13,9 +13,12 @@ export class MotionController {
         this.boundHandleOrientation = null;
         this.useFallback = false;
         this.isDesktop = this.checkDesktop();
+        this.motionReceived = false;
+        this.fallbackTimeout = null;
         
         console.log('📱 MotionController created');
         console.log('🖥️ Is desktop:', this.isDesktop);
+        console.log('🔍 User Agent:', navigator.userAgent);
         
         if (this.isDesktop) {
             console.log('🖥️ Desktop detected - using mouse fallback');
@@ -26,7 +29,6 @@ export class MotionController {
     }
     
     checkDesktop() {
-        // Detect if running on desktop (no touch support, no mobile user agent)
         const isMobile = /Android|iPhone|iPad|iPod|webOS/i.test(navigator.userAgent);
         const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
         return !isMobile && !hasTouch;
@@ -41,50 +43,52 @@ export class MotionController {
         
         console.log('📱 DeviceOrientationEvent available');
         
+        // Check if it's iOS (needs permission)
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            console.log('📱 iOS permission required');
-            // iOS - wait for explicit call
+            console.log('📱 iOS permission required - will request on user gesture');
         } else {
-            // Android - start immediately
+            // Android or older iOS - start immediately
             console.log('📱 No permission required - starting directly');
             this.startListening();
+            
+            // ===== FALLBACK TIMER: If no motion after 3 seconds, use mouse =====
+            this.fallbackTimeout = setTimeout(() => {
+                if (!this.motionReceived && !this.useFallback) {
+                    console.warn('⚠️ No motion event received after 3s - falling back to mouse');
+                    this.fallbackToMouse();
+                }
+            }, 3000);
         }
     }
     
-    async requestIOSPermission() {
+    requestIOSPermission() {
         if (this.permissionRequested) {
             console.log('📱 Permission already requested');
             return;
         }
         this.permissionRequested = true;
         
-        if (this.isDesktop) {
-            console.log('🖥️ Desktop - no permission needed');
-            this.fallbackToMouse();
-            return;
-        }
+        console.log('📱 Requesting iOS motion permission...');
         
-        console.log('📱 Requesting motion permission...');
-        
-        try {
-            const response = await DeviceOrientationEvent.requestPermission();
-            console.log('📱 Permission response:', response);
-            
-            if (response === 'granted') {
-                console.log('✅ Motion permission granted!');
-                this.hasPermission = true;
-                this.startListening();
-                if (this.onPermission) this.onPermission(true);
-            } else {
-                console.warn('❌ Motion permission denied');
+        DeviceOrientationEvent.requestPermission()
+            .then(response => {
+                console.log('📱 Permission response:', response);
+                if (response === 'granted') {
+                    console.log('✅ Motion permission granted!');
+                    this.hasPermission = true;
+                    this.startListening();
+                    if (this.onPermission) this.onPermission(true);
+                } else {
+                    console.warn('❌ Motion permission denied');
+                    this.fallbackToMouse();
+                    if (this.onPermission) this.onPermission(false);
+                }
+            })
+            .catch(error => {
+                console.error('❌ Permission error:', error);
                 this.fallbackToMouse();
                 if (this.onPermission) this.onPermission(false);
-            }
-        } catch (error) {
-            console.error('❌ Permission error:', error);
-            this.fallbackToMouse();
-            if (this.onPermission) this.onPermission(false);
-        }
+            });
     }
     
     startListening() {
@@ -106,12 +110,25 @@ export class MotionController {
         window.addEventListener('deviceorientationabsolute', this.boundHandleOrientation);
         
         this.isActive = true;
-        console.log('✅ Motion tracking active');
+        console.log('✅ Motion tracking active - waiting for data...');
         this.showStatus('📱 Move your phone to look around');
     }
     
     handleOrientation(event) {
+        // Mark that we received motion
+        if (!this.motionReceived) {
+            this.motionReceived = true;
+            console.log('📱 First motion event received!');
+            if (this.fallbackTimeout) {
+                clearTimeout(this.fallbackTimeout);
+                this.fallbackTimeout = null;
+            }
+        }
+        
         if (!event) return;
+        
+        // Log raw values for debugging
+        console.log('🔄 Raw:', { alpha: event.alpha, beta: event.beta, gamma: event.gamma });
         
         let alpha = event.alpha !== null ? event.alpha : 0;
         let beta = event.beta !== null ? event.beta : 0;
@@ -143,6 +160,8 @@ export class MotionController {
             gamma: compensatedGamma
         };
         
+        console.log('🔄 Compensated:', this.orientation);
+        
         if (this.onUpdate) {
             this.onUpdate(this.orientation);
         }
@@ -157,6 +176,11 @@ export class MotionController {
             this.boundHandleOrientation = null;
         }
         
+        if (this.fallbackTimeout) {
+            clearTimeout(this.fallbackTimeout);
+            this.fallbackTimeout = null;
+        }
+        
         if (this._fallbackCleanup) {
             this._fallbackCleanup();
             this._fallbackCleanup = null;
@@ -165,9 +189,6 @@ export class MotionController {
         console.log('📱 Motion stopped');
     }
     
-    // ============================================================
-    // ===== FIXED: Desktop Controls with Mouse, Touch & Keyboard =====
-    // ============================================================
     fallbackToMouse() {
         console.log('🖱️ Using mouse/touch fallback');
         this.useFallback = true;
@@ -181,11 +202,7 @@ export class MotionController {
         const ZOOM_SPEED = 0.05;
         const ROTATION_SPEED = 0.5;
         
-        // ============================================================
-        // MOUSE DRAG TO ROTATE
-        // ============================================================
         const onMouseDown = (e) => {
-            // Only if not clicking on a button
             if (e.target.closest('button')) return;
             isDragging = true;
             lastX = e.clientX;
@@ -212,23 +229,15 @@ export class MotionController {
             document.body.style.cursor = 'default';
         };
         
-        // ============================================================
-        // SCROLL TO ZOOM
-        // ============================================================
         const onWheel = (e) => {
             e.preventDefault();
             zoomLevel += e.deltaY * ZOOM_SPEED * 0.01;
             zoomLevel = Math.max(-1.5, Math.min(1.5, zoomLevel));
-            
-            // Send zoom update to scene
             if (this._zoomCallback) {
                 this._zoomCallback(zoomLevel);
             }
         };
         
-        // ============================================================
-        // TOUCH DRAG (for touchscreen laptops)
-        // ============================================================
         let touchX = 0, touchY = 0;
         let isTouching = false;
         
@@ -262,9 +271,6 @@ export class MotionController {
             isTouching = false;
         };
         
-        // ============================================================
-        // KEYBOARD CONTROLS
-        // ============================================================
         const onKeyDown = (e) => {
             switch(e.key) {
                 case 'ArrowLeft':
@@ -311,23 +317,15 @@ export class MotionController {
             }
         };
         
-        // ============================================================
-        // REGISTER EVENTS
-        // ============================================================
         document.addEventListener('mousedown', onMouseDown);
         document.addEventListener('mousemove', onMouseMove);
         document.addEventListener('mouseup', onMouseUp);
         document.addEventListener('wheel', onWheel, { passive: false });
-        
         document.addEventListener('touchstart', onTouchStart);
         document.addEventListener('touchmove', onTouchMove);
         document.addEventListener('touchend', onTouchEnd);
-        
         document.addEventListener('keydown', onKeyDown);
         
-        // ============================================================
-        // STORE CLEANUP AND CALLBACKS
-        // ============================================================
         this._fallbackCleanup = () => {
             document.removeEventListener('mousedown', onMouseDown);
             document.removeEventListener('mousemove', onMouseMove);
@@ -341,23 +339,13 @@ export class MotionController {
         };
         
         this._zoomCallback = null;
-        
-        // Store zoom callback function
         this.setZoomCallback = (callback) => {
             this._zoomCallback = callback;
         };
         
         console.log('✅ Desktop controls active!');
-        console.log('   🖱️ Drag to rotate');
-        console.log('   🔄 Scroll to zoom');
-        console.log('   ⌨️ Arrow keys to move');
-        console.log('   ⌨️ R to reset');
-        console.log('   ⌨️ F for fullscreen');
     }
     
-    // ============================================================
-    // SEND ORIENTATION UPDATE
-    // ============================================================
     sendOrientationUpdate(rotX, rotY) {
         if (this.onUpdate) {
             this.onUpdate({
@@ -368,9 +356,6 @@ export class MotionController {
         }
     }
     
-    // ============================================================
-    // SHOW STATUS
-    // ============================================================
     showStatus(message) {
         const statusEl = document.getElementById('status-text');
         if (statusEl) {
@@ -390,9 +375,6 @@ export class MotionController {
         }
     }
     
-    // ============================================================
-    // DISPOSE
-    // ============================================================
     dispose() {
         this.stop();
         if (this._fallbackCleanup) {

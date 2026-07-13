@@ -1,5 +1,5 @@
 /* ============================================================
-   MAIN - Zoo Explorer (WITH DEVICE CHOICE + FOX)
+   MAIN - Zoo Explorer (iOS PERMISSION FIXED)
    ============================================================ */
 
 import { ZooScene } from './scene.js';
@@ -32,10 +32,9 @@ let animationFrameId = null;
 let deviceType = null;
 
 // ============================================================
-// ANIMAL DATA (with Horse + Fox)
+// ANIMAL DATA
 // ============================================================
 const ANIMAL_DATA = [
-    // ===== HORSE =====
     {
         name: '🐴 Horse',
         fact: 'Horses can sleep standing up! They can also run within hours of being born.',
@@ -43,7 +42,6 @@ const ANIMAL_DATA = [
         size: 0.6,
         modelPath: './models/horse/horse.glb'
     },
-    // ===== FOX =====
     {
         name: '🦊 Fox',
         fact: 'Foxes are incredibly adaptable and can be found on every continent except Antarctica!',
@@ -51,7 +49,6 @@ const ANIMAL_DATA = [
         size: 0.4,
         modelPath: './models/fox/fox_baby.glb'
     },
-    // ===== OTHER ANIMALS (simple geometry) =====
     {
         name: '🦁 Lion',
         fact: 'Lions live in prides and are the only social big cats.',
@@ -146,14 +143,13 @@ async function init() {
         scene = new ZooScene(container);
         console.log('✅ Scene created');
         
-        // Create animals with positions
         const positions = [
-            { x: -2.5, z: -1 },   // Horse
-            { x: 2.5, z: 0.5 },   // Fox
-            { x: -1, z: 2.5 },    // Lion
-            { x: 1.5, z: -2 },    // Elephant
-            { x: -3, z: 1.5 },    // Giraffe
-            { x: 3, z: -1.5 }     // Tiger
+            { x: -2.5, z: -1 },
+            { x: 2.5, z: 0.5 },
+            { x: -1, z: 2.5 },
+            { x: 1.5, z: -2 },
+            { x: -3, z: 1.5 },
+            { x: 3, z: -1.5 }
         ];
         
         ANIMAL_DATA.forEach((data, i) => {
@@ -168,7 +164,6 @@ async function init() {
             });
             scene.addAnimal(animal);
             animals.push(animal);
-            
             if (data.modelPath) {
                 console.log(`🦄 Loading ${data.name} from: ${data.modelPath}`);
             }
@@ -177,12 +172,10 @@ async function init() {
         
         exposeControls();
         
-        // Hide loading
         loading.classList.add('hidden');
         startScreen.classList.remove('hidden');
         loadingText.textContent = '✅ Ready!';
         
-        // ===== DEVICE CHOICE =====
         showDeviceChoice();
         
         desktopBtn.addEventListener('click', () => {
@@ -192,7 +185,6 @@ async function init() {
             startBtn.textContent = '🖥️ Enter the Zoo';
             statusText.textContent = '🖥️ Desktop mode - drag to look around';
             startBtn.disabled = false;
-            // Highlight selection
             desktopBtn.style.borderColor = '#F5A623';
             phoneBtn.style.borderColor = 'rgba(255,255,255,0.15)';
         });
@@ -213,7 +205,6 @@ async function init() {
         console.log('📋 To test animations:');
         console.log('   window.animationControls.listAnimations(0) - Horse');
         console.log('   window.animationControls.listAnimations(1) - Fox');
-        console.log('   window.animationControls.playAnimation(1, "idle") - Fox idle');
         
     } catch (error) {
         console.error('❌ Error:', error);
@@ -223,46 +214,68 @@ async function init() {
 }
 
 // ============================================================
-// START EXPERIENCE
+// START EXPERIENCE (FIXED: permission requested immediately)
 // ============================================================
 function startExperience() {
     if (isStarting || isRunning || !deviceType) return;
     isStarting = true;
     
     console.log(`🚀 Starting experience in ${deviceType} mode...`);
+    
+    // ===== FIXED: If phone, create motion controller and request permission NOW =====
+    if (deviceType === 'phone') {
+        // Create motion controller with callbacks
+        motionController = new MotionController({
+            onUpdate: (orientation) => {
+                if (scene) {
+                    scene.setOrientation(
+                        orientation.alpha,
+                        orientation.beta,
+                        orientation.gamma
+                    );
+                }
+            },
+            onPermission: (granted) => {
+                if (granted) {
+                    console.log('✅ Motion permission granted!');
+                    if (statusText) {
+                        statusText.textContent = '📱 Motion active! Move your phone.';
+                    }
+                } else {
+                    console.log('ℹ️ Using touch/mouse controls');
+                    if (statusText) {
+                        statusText.textContent = '🖱️ Drag to look around';
+                    }
+                }
+            }
+        });
+        
+        // Request permission immediately (before hiding UI)
+        if (typeof DeviceOrientationEvent !== 'undefined' &&
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            console.log('📱 Requesting iOS permission NOW...');
+            motionController.requestIOSPermission();
+        }
+    }
+    
+    // ===== HIDE UI =====
     startScreen.classList.add('hidden');
     document.getElementById('ui-overlay').style.display = 'block';
     isRunning = true;
     
-    // ===== MOTION CONTROLLER =====
-    motionController = new MotionController({
-        onUpdate: (orientation) => {
-            if (scene) {
-                scene.setOrientation(
-                    orientation.alpha,
-                    orientation.beta,
-                    orientation.gamma
-                );
-            }
-        },
-        onPermission: (granted) => {
-            if (granted) {
-                console.log('✅ Motion permission granted!');
-                if (statusText) {
-                    statusText.textContent = '📱 Motion active! Move your phone.';
-                }
-            } else {
-                console.log('ℹ️ Using touch/mouse controls');
-                if (statusText) {
-                    statusText.textContent = '🖱️ Drag to look around';
-                }
-            }
-        }
-    });
-    
     // ===== DESKTOP MODE =====
     if (deviceType === 'desktop') {
-        console.log('🖥️ Desktop mode - using mouse fallback');
+        motionController = new MotionController({
+            onUpdate: (orientation) => {
+                if (scene) {
+                    scene.setOrientation(
+                        orientation.alpha,
+                        orientation.beta,
+                        orientation.gamma
+                    );
+                }
+            }
+        });
         if (motionController.setZoomCallback) {
             motionController.setZoomCallback((zoomLevel) => {
                 if (scene) {
@@ -270,14 +283,8 @@ function startExperience() {
                 }
             });
         }
-    }
-    
-    // ===== PHONE MODE =====
-    if (deviceType === 'phone') {
-        if (typeof DeviceOrientationEvent !== 'undefined' &&
-            typeof DeviceOrientationEvent.requestPermission === 'function') {
-            console.log('📱 Requesting iOS permission...');
-            motionController.requestIOSPermission();
+        if (statusText) {
+            statusText.textContent = '🖥️ Drag to look around · Scroll to zoom';
         }
     }
     
