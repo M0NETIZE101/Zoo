@@ -1,5 +1,5 @@
 /* ============================================================
-   SENSORS - Motion Handling (ANDROID DEBUG FIX)
+   SENSORS - Motion Handling (COMPLETE FIX)
    ============================================================ */
 
 export class MotionController {
@@ -43,18 +43,16 @@ export class MotionController {
         
         console.log('📱 DeviceOrientationEvent available');
         
-        // Check if it's iOS (needs permission)
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            console.log('📱 iOS permission required - will request on user gesture');
+            console.log('📱 iOS permission required');
         } else {
-            // Android or older iOS - start immediately
             console.log('📱 No permission required - starting directly');
             this.startListening();
             
-            // ===== FALLBACK TIMER: If no motion after 3 seconds, use mouse =====
+            // Fallback if no motion after 3s
             this.fallbackTimeout = setTimeout(() => {
                 if (!this.motionReceived && !this.useFallback) {
-                    console.warn('⚠️ No motion event received after 3s - falling back to mouse');
+                    console.warn('⚠️ No motion event received - falling back to mouse');
                     this.fallbackToMouse();
                 }
             }, 3000);
@@ -115,7 +113,6 @@ export class MotionController {
     }
     
     handleOrientation(event) {
-        // Mark that we received motion
         if (!this.motionReceived) {
             this.motionReceived = true;
             console.log('📱 First motion event received!');
@@ -127,41 +124,21 @@ export class MotionController {
         
         if (!event) return;
         
-        // Log raw values for debugging
-        console.log('🔄 Raw:', { alpha: event.alpha, beta: event.beta, gamma: event.gamma });
-        
+        // Get raw values
         let alpha = event.alpha !== null ? event.alpha : 0;
         let beta = event.beta !== null ? event.beta : 0;
         let gamma = event.gamma !== null ? event.gamma : 0;
         
         if (isNaN(alpha) || isNaN(beta) || isNaN(gamma)) return;
         
-        // Screen orientation compensation
-        let orientationAngle = 0;
-        if (screen && screen.orientation) {
-            orientationAngle = screen.orientation.angle || 0;
-        } else if (window.orientation !== undefined) {
-            orientationAngle = window.orientation || 0;
-        }
-        
-        const rad = orientationAngle * Math.PI / 180;
-        const cosA = Math.cos(rad);
-        const sinA = Math.sin(rad);
-        
-        let compensatedGamma = gamma * cosA - beta * sinA;
-        let compensatedBeta = gamma * sinA + beta * cosA;
-        
-        compensatedBeta = Math.max(-90, Math.min(90, compensatedBeta));
-        compensatedGamma = Math.max(-90, Math.min(90, compensatedGamma));
-        
+        // Store orientation (no heavy compensation - let scene handle it)
         this.orientation = {
             alpha: alpha,
-            beta: compensatedBeta,
-            gamma: compensatedGamma
+            beta: beta,
+            gamma: gamma
         };
         
-        console.log('🔄 Compensated:', this.orientation);
-        
+        // Send to scene
         if (this.onUpdate) {
             this.onUpdate(this.orientation);
         }
@@ -190,7 +167,7 @@ export class MotionController {
     }
     
     fallbackToMouse() {
-        console.log('🖱️ Using mouse/touch fallback');
+        console.log('🖥️ Using mouse/touch fallback');
         this.useFallback = true;
         this.isActive = true;
         this.showStatus('🖱️ Drag to look around · Scroll to zoom');
@@ -202,6 +179,7 @@ export class MotionController {
         const ZOOM_SPEED = 0.05;
         const ROTATION_SPEED = 0.5;
         
+        // Mouse drag
         const onMouseDown = (e) => {
             if (e.target.closest('button')) return;
             isDragging = true;
@@ -217,8 +195,8 @@ export class MotionController {
             lastX = e.clientX;
             lastY = e.clientY;
             
-            rotX += dx * ROTATION_SPEED * 0.3;
-            rotY += dy * ROTATION_SPEED * 0.3;
+            rotX += dx * 0.5;
+            rotY += dy * 0.5;
             rotY = Math.max(-89, Math.min(89, rotY));
             
             this.sendOrientationUpdate(rotX, rotY);
@@ -229,15 +207,17 @@ export class MotionController {
             document.body.style.cursor = 'default';
         };
         
+        // Scroll to zoom
         const onWheel = (e) => {
             e.preventDefault();
-            zoomLevel += e.deltaY * ZOOM_SPEED * 0.01;
+            zoomLevel += e.deltaY * 0.01;
             zoomLevel = Math.max(-1.5, Math.min(1.5, zoomLevel));
             if (this._zoomCallback) {
                 this._zoomCallback(zoomLevel);
             }
         };
         
+        // Touch drag
         let touchX = 0, touchY = 0;
         let isTouching = false;
         
@@ -260,8 +240,8 @@ export class MotionController {
             touchX = touch.clientX;
             touchY = touch.clientY;
             
-            rotX += dx * ROTATION_SPEED * 0.3;
-            rotY += dy * ROTATION_SPEED * 0.3;
+            rotX += dx * 0.3;
+            rotY += dy * 0.3;
             rotY = Math.max(-89, Math.min(89, rotY));
             
             this.sendOrientationUpdate(rotX, rotY);
@@ -271,42 +251,21 @@ export class MotionController {
             isTouching = false;
         };
         
+        // Keyboard
         const onKeyDown = (e) => {
             switch(e.key) {
-                case 'ArrowLeft':
-                    rotX -= 5;
-                    this.sendOrientationUpdate(rotX, rotY);
-                    e.preventDefault();
-                    break;
-                case 'ArrowRight':
-                    rotX += 5;
-                    this.sendOrientationUpdate(rotX, rotY);
-                    e.preventDefault();
-                    break;
-                case 'ArrowUp':
-                    rotY -= 5;
-                    rotY = Math.max(-89, Math.min(89, rotY));
-                    this.sendOrientationUpdate(rotX, rotY);
-                    e.preventDefault();
-                    break;
-                case 'ArrowDown':
-                    rotY += 5;
-                    rotY = Math.max(-89, Math.min(89, rotY));
-                    this.sendOrientationUpdate(rotX, rotY);
-                    e.preventDefault();
-                    break;
-                case 'r':
-                case 'R':
-                    rotX = 0;
-                    rotY = 0;
-                    zoomLevel = 0;
+                case 'ArrowLeft': rotX -= 5; this.sendOrientationUpdate(rotX, rotY); e.preventDefault(); break;
+                case 'ArrowRight': rotX += 5; this.sendOrientationUpdate(rotX, rotY); e.preventDefault(); break;
+                case 'ArrowUp': rotY -= 5; rotY = Math.max(-89, Math.min(89, rotY)); this.sendOrientationUpdate(rotX, rotY); e.preventDefault(); break;
+                case 'ArrowDown': rotY += 5; rotY = Math.max(-89, Math.min(89, rotY)); this.sendOrientationUpdate(rotX, rotY); e.preventDefault(); break;
+                case 'r': case 'R':
+                    rotX = 0; rotY = 0; zoomLevel = 0;
                     this.sendOrientationUpdate(rotX, rotY);
                     if (this._zoomCallback) this._zoomCallback(0);
                     this.showStatus('🔄 View reset');
                     e.preventDefault();
                     break;
-                case 'f':
-                case 'F':
+                case 'f': case 'F':
                     if (document.fullscreenElement) {
                         document.exitFullscreen();
                     } else {
