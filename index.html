@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>🦁 Magic Window Zoo</title>
+    <title>Magic Window Zoo</title>
     
     <link rel="stylesheet" href="css/style.css" />
     
@@ -16,11 +16,13 @@
         }
     </script>
 </head>
-<body>
+    <!-- FIXED: Prevent pull-to-refresh and text selection on mobile -->
+    <body style="touch-action: none; -webkit-user-select: none; user-select: none; overflow: hidden;">
+
     <!-- ===== LOADING ===== -->
     <div id="loading">
         <div class="spinner"></div>
-        <p id="loading-text">🦁 Loading Magic Window Zoo...</p>
+        <p id="loading-text">Loading Magic Window Zoo...</p>
         <p class="sub-text">Preparing your wildlife adventure</p>
     </div>
 
@@ -29,19 +31,11 @@
         <div class="card">
             <div class="logo">🦁</div>
             <h1>Magic Window Zoo</h1>
-            <p>Look through your phone into a living zoo!</p>
+            <p>Look through your device into a living zoo</p>
             
-            <!-- Device Choice -->
-            <div id="device-choice">
-                <p style="font-size: 14px; opacity: 0.7; margin-bottom: 12px;">Select your device:</p>
-                <div style="display: flex; gap: 10px;">
-                    <button id="desktop-btn" class="device-btn">🖥️ Desktop</button>
-                    <button id="phone-btn" class="device-btn">📱 Phone</button>
-                </div>
-            </div>
-            
-            <button id="start-btn" style="display: none;">🌿 Enter the Zoo</button>
-            <p id="status-text" class="status">Select your device to begin</p>
+            <!-- FIXED: Removed manual device choice. JS handles this automatically. -->
+            <button id="start-btn">Enter the Zoo</button>
+            <p id="status-text" class="status">Tap to begin</p>
         </div>
     </div>
 
@@ -50,22 +44,27 @@
 
     <!-- ===== UI OVERLAY ===== -->
     <div id="ui-overlay" style="display: none;">
+        
+        <!-- FIXED: Added crosshair for the discovery raycaster -->
+        <div id="crosshair"></div>
+
         <!-- Top: Collection -->
         <div id="top-bar">
             <div id="collection-count">
                 <span>🐾</span>
                 <span id="animal-count">0</span>
-                <span>/ 6</span>
+                <!-- FIXED: Removed hardcoded / 6. JS will populate this -->
+                <span id="total-count">/ 0</span>
             </div>
             <div id="current-animal">
-                <span id="animal-name">👀 Looking around</span>
+                <span id="animal-name">Looking around...</span>
             </div>
         </div>
 
         <!-- Center: Discovery Popup -->
         <div id="discovery-popup" style="display: none;">
             <div class="discovery-card">
-                <h2 id="discovery-name">🦁 Lion</h2>
+                <h2 id="discovery-name">Lion</h2>
                 <p id="discovery-fact">Looking at an animal reveals its fact!</p>
                 <div class="discovery-progress">
                     <div class="progress-ring"></div>
@@ -76,24 +75,24 @@
 
         <!-- Bottom Controls -->
         <div id="bottom-controls">
-            <button id="camera-btn" class="control-btn">
+            <button id="camera-btn" class="control-btn" title="Take Photo">
                 <span class="icon">📸</span>
                 <span class="label">Photo</span>
             </button>
-            <button id="reset-btn" class="control-btn">
+            <button id="reset-btn" class="control-btn" title="Reset View">
                 <span class="icon">🔄</span>
                 <span class="label">Reset</span>
             </button>
-            <button id="share-btn" class="control-btn">
+            <button id="share-btn" class="control-btn" title="Share">
                 <span class="icon">📤</span>
                 <span class="label">Share</span>
             </button>
         </div>
 
-        <!-- Guidance -->
+        <!-- FIXED: Dynamic guidance text (JS will set this based on desktop/mobile) -->
         <div id="guidance">
-            <span class="icon">📱</span>
-            <span class="text">Move your phone to look around</span>
+            <span id="guidance-icon" class="icon">📱</span>
+            <span id="guidance-text" class="text">Move to look around</span>
         </div>
     </div>
 
@@ -105,9 +104,8 @@
         <div class="preview-card">
             <img id="captured-image" src="" alt="Zoo Photo" />
             <div class="preview-actions">
-                <button id="preview-close-btn">✕ Close</button>
-                <button id="preview-share-btn">📤 Share</button>
-                <button id="preview-download-btn">💾 Save</button>
+                <button id="preview-close-btn">Close</button>
+                <button id="preview-download-btn">Save</button>
             </div>
         </div>
     </div>
