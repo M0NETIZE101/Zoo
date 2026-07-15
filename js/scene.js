@@ -1,5 +1,5 @@
 /* ============================================================
-   SCENE - 3D Zoo Scene (BIRDS-EYE VIEW - COMPLETELY FIXED)
+   SCENE - First-Person Magic Window Zoo (Stationary)
    ============================================================ */
 
 import * as THREE from 'three';
@@ -10,35 +10,24 @@ export class ZooScene {
         this.scene = null;
         this.camera = null;
         this.renderer = null;
-        this.worldGroup = null;
         this.animals = [];
-        this.trees = [];
         this.isReady = false;
         
-        // ===== BIRDS-EYE CONFIG =====
-        this.SCENE_Y = -15;
-        this.BASE_TILT = -Math.PI / 2;
-        this.tiltAmount = 0.25;
+        // Magic Window Smoothing State
+        this.alpha = 0; // Yaw (left/right)
+        this.beta = 0;  // Pitch (up/down)
+        this.gamma = 0; // Roll (tilt)
         
-        // ===== FIXED: Consistent zoom =====
-        // FOV 55 matches zoomLevel 3 formula: 80 - (3-1) * 12.5 = 55
-        this.zoomLevel = 3;
-        this.minZoom = 1;
-        this.maxZoom = 5;
-        this.minFOV = 30;   // zoomLevel 5
-        this.maxFOV = 80;   // zoomLevel 1
-        
-        // Smoothing state
-        this.alpha = 0;
-        this.beta = 0;
-        this.gamma = 0;
+        // Discovery System
+        this.raycaster = new THREE.Raycaster();
+        this.raycaster.far = 30; // Only detect animals within 30 meters
+        this.screenCenter = new THREE.Vector2(0, 0); // Exact center of screen
+        this.currentlyDiscovered = null;
         
         this.setupScene();
     }
     
     setupScene() {
-        console.log('🦅 Setting up birds-eye zoo scene...');
-        
         if (!this.container) {
             console.error('❌ Container not found!');
             return;
@@ -47,52 +36,39 @@ export class ZooScene {
         try {
             // ===== SCENE =====
             this.scene = new THREE.Scene();
-            this.scene.background = new THREE.Color(0x87CEEB);
+            this.scene.background = new THREE.Color(0x7EC8E3); // Nice sky blue
+            // Subtle fog to hide the empty edges of the world
+            this.scene.fog = new THREE.FogExp2(0x7EC8E3, 0.025);
             
-            // ===== CAMERA =====
-            // FIXED: Consistent FOV (55 matches zoomLevel 3)
-            this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
-            this.camera.position.set(0, 0, 0);
-            
-            // Looking DOWN
-            this.camera.rotation.order = 'YXZ';
-            this.camera.rotation.x = this.BASE_TILT;
+            // ===== CAMERA (Eye Level, Stationary) =====
+            this.camera = new THREE.PerspectiveCamera(
+                70, // Wide FOV for immersion
+                window.innerWidth / window.innerHeight, 
+                0.1, 
+                100
+            );
+            this.camera.position.set(0, 1.6, 0); // 1.6 meters = average human eye height
+            this.camera.rotation.order = 'YXZ';   // CRITICAL for Magic Window math
             
             // ===== RENDERER =====
-            this.renderer = new THREE.WebGLRenderer({
-                antialias: true,
-                alpha: false
-            });
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
             this.renderer.setSize(window.innerWidth, window.innerHeight);
             this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
             this.renderer.shadowMap.enabled = true;
             this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            this.renderer.toneMappingExposure = 1.2;
-            
+            this.renderer.toneMappingExposure = 1.1;
             this.container.appendChild(this.renderer.domElement);
             
-            // ===== WORLD GROUP =====
-            this.worldGroup = new THREE.Group();
-            this.worldGroup.position.y = this.SCENE_Y;
-            this.scene.add(this.worldGroup);
-            
-            // Setup scene elements
+            // Build the world
             this.setupLights();
-            this.setupGround();
+            this.setupEnvironment();
             
-            // Resize
-            if (screen && screen.orientation) {
-                screen.orientation.addEventListener('change', () => {
-                    this.onResize();
-                });
-            }
-            window.addEventListener('resize', () => {
-                this.onResize();
-            });
+            // Handle window resizing
+            window.addEventListener('resize', () => this.onResize());
             
             this.isReady = true;
-            console.log('✅ Birds-eye zoo scene ready');
+            console.log('✅ First-Person Magic Window Scene Ready');
             
         } catch (error) {
             console.error('❌ Scene setup error:', error);
@@ -100,101 +76,119 @@ export class ZooScene {
     }
     
     onResize() {
-        if (this.camera && this.renderer) {
-            this.camera.aspect = window.innerWidth / window.innerHeight;
-            this.camera.updateProjectionMatrix();
-            this.renderer.setSize(window.innerWidth, window.innerHeight);
-        }
+        if (!this.camera || !this.renderer) return;
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
     }
     
     // ============================================================
-    // LIGHTS
+    // LIGHTING
     // ============================================================
     setupLights() {
-        const ambient = new THREE.AmbientLight(0x606080, 0.6);
-        this.worldGroup.add(ambient);
+        // Soft ambient fill
+        const ambient = new THREE.AmbientLight(0x8899aa, 0.7);
+        this.scene.add(ambient);
         
-        const sun = new THREE.DirectionalLight(0xffeedd, 1.5);
-        sun.position.set(12, 20, 8);
+        // Warm sunlight with shadows
+        const sun = new THREE.DirectionalLight(0xffeedd, 1.8);
+        sun.position.set(15, 20, 10);
         sun.castShadow = true;
         sun.shadow.mapSize.width = 2048;
         sun.shadow.mapSize.height = 2048;
         sun.shadow.camera.near = 0.5;
         sun.shadow.camera.far = 60;
-        sun.shadow.camera.left = -20;
-        sun.shadow.camera.right = 20;
-        sun.shadow.camera.top = 20;
-        sun.shadow.camera.bottom = -20;
-        this.worldGroup.add(sun);
+        // Shadow camera bounds large enough to cover the circular zoo
+        sun.shadow.camera.left = -25;
+        sun.shadow.camera.right = 25;
+        sun.shadow.camera.top = 25;
+        sun.shadow.camera.bottom = -25;
+        sun.shadow.bias = -0.001; // Prevent shadow acne
+        this.scene.add(sun);
         
-        const hemi = new THREE.HemisphereLight(0x87CEEB, 0x3a7d44, 0.3);
-        this.worldGroup.add(hemi);
+        // Sky/Ground bounce light
+        const hemi = new THREE.HemisphereLight(0x87CEEB, 0x556B2F, 0.4);
+        this.scene.add(hemi);
     }
     
     // ============================================================
-    // GROUND + ZONES
+    // ENVIRONMENT (Circular Layout)
     // ============================================================
-    setupGround() {
-        // Base ground
-        const groundGeo = new THREE.PlaneGeometry(40, 40);
-        const groundMat = new THREE.MeshStandardMaterial({
-            color: 0x5a8f3c,
-            roughness: 0.9,
-            metalness: 0.0
+    setupEnvironment() {
+        // --- GROUND ---
+        const groundGeo = new THREE.CircleGeometry(50, 32);
+        const groundMat = new THREE.MeshStandardMaterial({ 
+            color: 0x4a8c38, // Base grass green
+            roughness: 0.95 
         });
         const ground = new THREE.Mesh(groundGeo, groundMat);
         ground.rotation.x = -Math.PI / 2;
         ground.receiveShadow = true;
-        this.worldGroup.add(ground);
+        this.scene.add(ground);
         
-        // Enclosure zones
+        // --- CENTRAL VIEWING PLATFORM ---
+        const platformGeo = new THREE.CylinderGeometry(1.5, 1.8, 0.15, 16);
+        const platformMat = new THREE.MeshStandardMaterial({ color: 0x9e8e7e, roughness: 0.9 }); // Stone color
+        const platform = new THREE.Mesh(platformGeo, platformMat);
+        platform.position.y = 0.075;
+        platform.receiveShadow = true;
+        this.scene.add(platform);
+
+        // --- ENCLOSURES ---
+        // Placed in a circle (radius 10m) around the player at 90-degree intervals
+        const enclosureRadius = 10;
         const zones = [
-            { x: -6, z: -4, w: 5, h: 4, color: 0xc2b280, label: 'Savanna' },
-            { x: 5, z: -3, w: 4, h: 5, color: 0x2d5a27, label: 'Forest' },
-            { x: -4, z: 5, w: 5, h: 4, color: 0x87CEEB, label: 'Aquatic' },
-            { x: 6, z: 5, w: 4, h: 4, color: 0xe8e8e8, label: 'Arctic' },
-            { x: 0, z: 0, w: 3, h: 3, color: 0x8B7355, label: 'Central' },
+            { angle: 0,   color: 0xc2b280, name: 'Savanna'  }, // Front (North)
+            { angle: 90,  color: 0x2d5a27, name: 'Forest'   }, // Right (East)
+            { angle: 180, color: 0xdce9f0, name: 'Arctic'   }, // Back (South)
+            { angle: 270, color: 0x4a8db7, name: 'Aquatic'  }, // Left (West)
         ];
         
-        zones.forEach(z => {
-            const geo = new THREE.PlaneGeometry(z.w, z.h);
-            const mat = new THREE.MeshStandardMaterial({
-                color: z.color,
+        zones.forEach(zone => {
+            const rad = THREE.MathUtils.degToRad(zone.angle);
+            const x = Math.sin(rad) * enclosureRadius;
+            const z = -Math.cos(rad) * enclosureRadius;
+            
+            // 1. Ground Patch for the environment
+            const patchGeo = new THREE.CircleGeometry(4, 24);
+            const patchMat = new THREE.MeshStandardMaterial({ 
+                color: zone.color, 
                 roughness: 0.85,
-                metalness: z.label === 'Aquatic' ? 0.3 : 0.0
+                metalness: zone.name === 'Aquatic' ? 0.2 : 0.0 // Slight reflection for water
             });
-            const patch = new THREE.Mesh(geo, mat);
+            const patch = new THREE.Mesh(patchGeo, patchMat);
             patch.rotation.x = -Math.PI / 2;
-            patch.position.set(z.x, 0.01, z.z);
+            patch.position.set(x, 0.02, z);
             patch.receiveShadow = true;
-            this.worldGroup.add(patch);
+            this.scene.add(patch);
+            
+            // 2. Low Fence (0.8m high - easy to see over from 1.6m eye level)
+            const fenceGeo = new THREE.TorusGeometry(4, 0.1, 8, 32);
+            const fenceMat = new THREE.MeshStandardMaterial({ color: 0x5D4037, roughness: 0.8 }); // Wood brown
+            const fence = new THREE.Mesh(fenceGeo, fenceMat);
+            fence.rotation.x = -Math.PI / 2;
+            fence.position.set(x, 0.4, z); // Half of 0.8m height
+            fence.castShadow = true;
+            this.scene.add(fence);
+            
+            // 3. Border Trees (behind the enclosures to block the void)
+            for (let i = 0; i < 5; i++) {
+                const treeAngle = rad + (Math.PI / 2) + (i - 2) * 0.4; // Fan out behind
+                const treeDist = 5.5 + Math.random() * 2;
+                this.createTree(
+                    x + Math.sin(treeAngle) * treeDist,
+                    z - Math.cos(treeAngle) * treeDist
+                );
+            }
         });
-        
-        // Paths
-        const pathMat = new THREE.MeshStandardMaterial({ color: 0x9e8e7e, roughness: 0.95 });
-        [
-            { x: 0, z: -1.5, w: 1.2, h: 8 },
-            { x: -1.5, z: 0, w: 8, h: 1.2 },
-        ].forEach(p => {
-            const path = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.h), pathMat);
-            path.rotation.x = -Math.PI / 2;
-            path.position.set(p.x, 0.02, p.z);
-            path.receiveShadow = true;
-            this.worldGroup.add(path);
+
+        // --- SCATTERED FILL TREES (between paths) ---
+        const fillTreeAngles = [45, 135, 225, 315];
+        fillTreeAngles.forEach(angle => {
+            const rad = THREE.MathUtils.degToRad(angle);
+            const dist = 5 + Math.random() * 2;
+            this.createTree(Math.sin(rad) * dist, -Math.cos(rad) * dist);
         });
-        
-        // Trees
-        const treePositions = [
-            [-8.5, -5.5], [-8.5, -3], [-8.5, -0.5],
-            [-3.5, -5.5], [-3.5, -6],
-            [7, -5], [7, -1], [3, -5],
-            [-6, 7], [-2, 7], [-6, 3],
-            [8, 7], [4, 7], [8, 3],
-            [-10, 0], [10, 0], [0, -9], [0, 9],
-            [-9, 8], [9, -8],
-        ];
-        
-        treePositions.forEach(([x, z]) => this.createTree(x, z));
     }
     
     // ============================================================
@@ -202,124 +196,132 @@ export class ZooScene {
     // ============================================================
     createTree(x, z) {
         const group = new THREE.Group();
+        const height = 3 + Math.random() * 3;
         
+        // Trunk
         const trunk = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.05, 0.08, 0.3, 5),
+            new THREE.CylinderGeometry(0.15, 0.25, height, 6),
             new THREE.MeshStandardMaterial({ color: 0x6D4C41 })
         );
-        trunk.position.y = 0.15;
+        trunk.position.y = height / 2;
         trunk.castShadow = true;
         group.add(trunk);
         
-        const radius = 0.3 + Math.random() * 0.25;
+        // Canopy (Sphere)
+        const canopyRadius = 1.2 + Math.random() * 0.8;
         const canopy = new THREE.Mesh(
-            new THREE.CylinderGeometry(radius, radius * 0.9, 0.15, 8),
+            new THREE.SphereGeometry(canopyRadius, 8, 8),
             new THREE.MeshStandardMaterial({
-                color: new THREE.Color().setHSL(0.28 + Math.random() * 0.06, 0.55, 0.28 + Math.random() * 0.15)
+                color: new THREE.Color().setHSL(0.28 + Math.random() * 0.06, 0.6, 0.25 + Math.random() * 0.15)
             })
         );
-        canopy.position.y = 0.35;
+        canopy.position.y = height + canopyRadius * 0.6;
         canopy.castShadow = true;
-        canopy.receiveShadow = true;
         group.add(canopy);
         
         group.position.set(x, 0, z);
-        this.worldGroup.add(group);
-        this.trees.push(group);
+        this.scene.add(group);
     }
     
     // ============================================================
     // ANIMALS
     // ============================================================
     addAnimal(animal) {
+        // Tag all meshes in the animal with a reference back to the animal class
+        // This is required for the Discovery Raycaster to work
+        animal.group.traverse((child) => {
+            if (child.isMesh) {
+                child.userData.animalRef = animal;
+            }
+        });
+        
         this.animals.push(animal);
-        this.worldGroup.add(animal.group);
+        this.scene.add(animal.group);
         return animal;
     }
     
     // ============================================================
-    // UPDATE
+    // DISCOVERY SYSTEM (Since player can't walk to animals)
     // ============================================================
-    update(delta) {
-        const time = performance.now() / 1000;
-        this.animals.forEach(animal => animal.update(delta, time));
+    checkDiscovery() {
+        // Shoot a ray from the exact center of the screen
+        this.raycaster.setFromCamera(this.screenCenter, this.camera);
+        
+        // Check intersections with all objects in the scene
+        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+        
+        if (intersects.length > 0) {
+            // Walk up the parent chain to find the animalRef we tagged in addAnimal()
+            let obj = intersects[0].object;
+            while (obj) {
+                if (obj.userData && obj.userData.animalRef) {
+                    const discoveredAnimal = obj.userData.animalRef;
+                    
+                    // Only trigger if it's a NEW animal being looked at
+                    if (this.currentlyDiscovered !== discoveredAnimal) {
+                        this.currentlyDiscovered = discoveredAnimal;
+                        return discoveredAnimal; // Return the Animal class instance
+                    }
+                    return null; // Still looking at the same animal
+                }
+                obj = obj.parent;
+            }
+        }
+        
+        // Looking at empty space
+        if (this.currentlyDiscovered) {
+            this.currentlyDiscovered = null;
+            return 'cleared'; // Tell UI to hide the card
+        }
+        
+        return null;
     }
     
     // ============================================================
-    // ===== COMPLETELY FIXED: setOrientation with instant flag =====
+    // UPDATE LOOP
+    // ============================================================
+    update(delta) {
+        const time = performance.now() / 1000;
+        
+        // Update animal logic (wandering, animations)
+        this.animals.forEach(animal => animal.update(delta, time));
+        
+        // Check if player is looking directly at an animal
+        // (Your main app should listen for this to show UI)
+        this.checkDiscovery();
+    }
+    
+    // ============================================================
+    // MAGIC WINDOW ORIENTATION (The core math)
     // ============================================================
     setOrientation(alpha, beta, gamma, delta = 1/60, instant = false) {
-        // Debug
-        if (Math.random() < 0.005) {
-            console.log(`🔄 Alpha: ${alpha.toFixed(1)}°, Beta: ${beta.toFixed(1)}°, Gamma: ${gamma.toFixed(1)}°`);
-        }
-        
         if (instant) {
-            // ===== MOUSE/TOUCH: apply directly, skip smoothing =====
+            // Mouse drag: apply raw input directly
             this.alpha = alpha;
             this.beta = beta;
             this.gamma = gamma;
         } else {
-            // ===== SENSORS: smooth with frame-rate independence =====
+            // Sensors: frame-rate independent smoothing
             const sm = 1 - Math.pow(0.945, delta * 60);
             
-            // Shortest-path yaw wrapping
+            // Shortest-path wrapping for Yaw (prevents 359° -> 0° spin bug)
             let dAlpha = alpha - this.alpha;
-            if (dAlpha > 180) dAlpha -= 360;
+            if (dAlpha > 180)  dAlpha -= 360;
             if (dAlpha < -180) dAlpha += 360;
+            
             this.alpha += dAlpha * sm;
-            this.beta += (beta - this.beta) * sm;
+            this.beta  += (beta  - this.beta)  * sm;
             this.gamma += (gamma - this.gamma) * sm;
         }
-        
-        // ===== BIRDS-EYE MAPPING =====
-        // Yaw = spin the map
+
+        // Apply to camera (YXZ order is critical here)
         this.camera.rotation.y = -THREE.MathUtils.degToRad(this.alpha);
-        
-        // Pitch = slight forward/back tilt from top-down
-        this.camera.rotation.x = this.BASE_TILT + THREE.MathUtils.degToRad(this.beta) * this.tiltAmount;
-        
-        // Roll = slight bank
-        this.camera.rotation.z = THREE.MathUtils.degToRad(this.gamma) * this.tiltAmount;
+        this.camera.rotation.x =  THREE.MathUtils.degToRad(this.beta);
+        this.camera.rotation.z =  THREE.MathUtils.degToRad(this.gamma);
     }
     
     // ============================================================
-    // ===== FIXED: Zoom with consistent FOV =====
-    // ============================================================
-    setZoom(zoomDelta) {
-        this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel + zoomDelta));
-        
-        // Map zoomLevel 1-5 to FOV 80-30
-        // zoomLevel 1 → FOV 80 (wide overview)
-        // zoomLevel 3 → FOV 55 (default)
-        // zoomLevel 5 → FOV 30 (close-up)
-        const fov = this.maxFOV - (this.zoomLevel - this.minZoom) * (this.maxFOV - this.minFOV) / (this.maxZoom - this.minZoom);
-        this.camera.fov = fov;
-        this.camera.updateProjectionMatrix();
-    }
-    
-    // ============================================================
-    // ===== FIXED: Reset with consistent values =====
-    // ============================================================
-    resetCamera() {
-        this.alpha = 0;
-        this.beta = 0;
-        this.gamma = 0;
-        this.zoomLevel = 3;
-        
-        this.camera.rotation.y = 0;
-        this.camera.rotation.x = this.BASE_TILT;
-        this.camera.rotation.z = 0;
-        
-        // FOV 55 matches zoomLevel 3
-        this.camera.fov = 55;
-        this.camera.updateProjectionMatrix();
-        
-        console.log('🔄 Camera reset to birds-eye view');
-    }
-    
-    // ============================================================
-    // RENDER
+    // LIFECYCLE
     // ============================================================
     render() {
         if (this.renderer && this.scene && this.camera) {
@@ -327,33 +329,17 @@ export class ZooScene {
         }
     }
     
-    getRenderer() { return this.renderer; }
-    getScene() { return this.scene; }
-    getCamera() { return this.camera; }
-    
-    // ============================================================
-    // DISPOSE
-    // ============================================================
     dispose() {
-        console.log('🧹 Disposing scene...');
         this.scene.traverse((child) => {
             if (child.isMesh) {
-                if (child.geometry) child.geometry.dispose();
-                if (child.material) child.material.dispose();
+                child.geometry?.dispose();
+                if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                else child.material?.dispose();
             }
         });
-        while (this.scene.children.length > 0) {
-            this.scene.remove(this.scene.children[0]);
-        }
-        if (this.renderer) {
-            this.renderer.dispose();
-            if (this.renderer.domElement && this.renderer.domElement.parentNode) {
-                this.renderer.domElement.parentNode.removeChild(this.renderer.domElement);
-            }
-        }
+        this.renderer?.dispose();
+        this.renderer?.domElement?.parentNode?.removeChild(this.renderer.domElement);
         this.animals = [];
-        this.trees = [];
         this.isReady = false;
-        console.log('✅ Scene disposed');
     }
 }
