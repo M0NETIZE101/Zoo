@@ -1,5 +1,5 @@
 /* ============================================================
-   SCENE - 3D Zoo Scene (COMPLETELY FIXED)
+   SCENE - 3D Zoo Scene (BIRDS-EYE VIEW)
    ============================================================ */
 
 import * as THREE from 'three';
@@ -10,11 +10,16 @@ export class ZooScene {
         this.scene = null;
         this.camera = null;
         this.renderer = null;
+        this.worldGroup = null;
         this.animals = [];
         this.clouds = [];
         this.trees = [];
-        this.rocks = [];
         this.isReady = false;
+        
+        // ===== BIRDS-EYE CONFIG =====
+        this.SCENE_Y = -15;                    // Everything lives below camera
+        this.BASE_TILT = -Math.PI / 2;         // Looking straight down
+        this.tiltAmount = 0.25;                 // Sensor tilt sensitivity
         this.zoomLevel = 3;
         
         // Smoothing state
@@ -26,7 +31,7 @@ export class ZooScene {
     }
     
     setupScene() {
-        console.log('🦁 Setting up zoo scene...');
+        console.log('🦅 Setting up birds-eye zoo scene...');
         
         if (!this.container) {
             console.error('❌ Container not found!');
@@ -34,26 +39,20 @@ export class ZooScene {
         }
         
         try {
-            // Scene
+            // ===== SCENE =====
             this.scene = new THREE.Scene();
             this.scene.background = new THREE.Color(0x87CEEB);
+            // NO FOG - want to see the whole layout clearly
             
-            // ===== FIXED: Fog pushed much further back =====
-            // Option A: Push fog back so the whole zoo is visible
-            this.scene.fog = new THREE.Fog(0x87CEEB, 30, 60);
-            
-            // Option B: Remove fog entirely for crisp view
-            // (uncomment the line below and comment the one above)
-            // this.scene.fog = null;
-            
-            // Camera - set to origin like working code
-            this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
+            // ===== CAMERA =====
+            this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
             this.camera.position.set(0, 0, 0);
             
-            // ===== CRITICAL: Set rotation order to YXZ (once is enough) =====
+            // ===== CRITICAL: Looking DOWN =====
             this.camera.rotation.order = 'YXZ';
+            this.camera.rotation.x = this.BASE_TILT;  // Straight down
             
-            // Renderer - removed preserveDrawingBuffer for performance
+            // ===== RENDERER =====
             this.renderer = new THREE.WebGLRenderer({
                 antialias: true,
                 alpha: false
@@ -66,6 +65,11 @@ export class ZooScene {
             this.renderer.toneMappingExposure = 1.2;
             
             this.container.appendChild(this.renderer.domElement);
+            
+            // ===== WORLD GROUP (everything goes here, below camera) =====
+            this.worldGroup = new THREE.Group();
+            this.worldGroup.position.y = this.SCENE_Y;
+            this.scene.add(this.worldGroup);
             
             // Setup scene elements
             this.setupLights();
@@ -83,7 +87,7 @@ export class ZooScene {
             });
             
             this.isReady = true;
-            console.log('✅ Zoo scene ready');
+            console.log('✅ Birds-eye zoo scene ready');
             
         } catch (error) {
             console.error('❌ Scene setup error:', error);
@@ -98,201 +102,206 @@ export class ZooScene {
         }
     }
     
+    // ============================================================
+    // LIGHTS
+    // ============================================================
     setupLights() {
-        const ambient = new THREE.AmbientLight(0x404060, 0.5);
-        this.scene.add(ambient);
+        // Ambient
+        const ambient = new THREE.AmbientLight(0x606080, 0.6);
+        this.worldGroup.add(ambient);
         
-        const sun = new THREE.DirectionalLight(0xffeedd, 1.2);
-        sun.position.set(10, 15, 5);
+        // Side light for shadows from above
+        const sun = new THREE.DirectionalLight(0xffeedd, 1.5);
+        sun.position.set(12, 20, 8);
         sun.castShadow = true;
-        sun.shadow.mapSize.width = 1024;
-        sun.shadow.mapSize.height = 1024;
-        this.scene.add(sun);
+        sun.shadow.mapSize.width = 2048;
+        sun.shadow.mapSize.height = 2048;
+        sun.shadow.camera.near = 0.5;
+        sun.shadow.camera.far = 60;
+        sun.shadow.camera.left = -20;
+        sun.shadow.camera.right = 20;
+        sun.shadow.camera.top = 20;
+        sun.shadow.camera.bottom = -20;
+        this.worldGroup.add(sun);
         
-        const fill = new THREE.DirectionalLight(0x88aaff, 0.3);
-        fill.position.set(-5, 5, -5);
-        this.scene.add(fill);
-        
-        const hemi = new THREE.HemisphereLight(0x87CEEB, 0x3a7d44, 0.4);
-        this.scene.add(hemi);
+        // Hemisphere
+        const hemi = new THREE.HemisphereLight(0x87CEEB, 0x3a7d44, 0.3);
+        this.worldGroup.add(hemi);
     }
     
+    // ============================================================
+    // ENVIRONMENT
+    // ============================================================
     setupEnvironment() {
-        // Simple sky gradient
-        const skyGeo = new THREE.SphereGeometry(50, 32, 32);
-        const skyMat = new THREE.ShaderMaterial({
-            side: THREE.BackSide,
-            uniforms: {
-                topColor: { value: new THREE.Color(0x4A90D9) },
-                bottomColor: { value: new THREE.Color(0xB8D4E3) },
-                offset: { value: 20 },
-                exponent: { value: 0.6 }
-            },
-            vertexShader: `
-                varying vec3 vWorldPosition;
-                void main() {
-                    vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-                    vWorldPosition = worldPosition.xyz;
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-                }
-            `,
-            fragmentShader: `
-                uniform vec3 topColor;
-                uniform vec3 bottomColor;
-                uniform float offset;
-                uniform float exponent;
-                varying vec3 vWorldPosition;
-                void main() {
-                    float h = normalize(vWorldPosition + offset).y;
-                    gl_FragColor = vec4(mix(bottomColor, topColor, max(pow(max(h, 0.0), exponent), 0.0)), 1.0);
-                }
-            `
-        });
-        const sky = new THREE.Mesh(skyGeo, skyMat);
-        this.scene.add(sky);
-        
-        // ===== FIXED: Clouds stored separately =====
-        for (let i = 0; i < 12; i++) {
-            const cloud = new THREE.Mesh(
-                new THREE.SphereGeometry(0.3 + Math.random() * 0.5, 6, 6),
-                new THREE.MeshBasicMaterial({
-                    color: 0xffffff,
-                    transparent: true,
-                    opacity: 0.3 + Math.random() * 0.3
-                })
-            );
-            cloud.position.set(
-                (Math.random() - 0.5) * 20,
-                4 + Math.random() * 3,
-                (Math.random() - 0.5) * 20 - 5
-            );
-            cloud.scale.set(1, 0.3 + Math.random() * 0.3, 1);
-            cloud.userData.speed = 0.01 + Math.random() * 0.02;
-            this.scene.add(cloud);
-            this.clouds.push(cloud);
-        }
+        // No clouds for birds-eye view - they'd clutter the view
+        // Just the sky background is enough
     }
     
+    // ============================================================
+    // GROUND + ZONES
+    // ============================================================
     setupGround() {
-        // Main ground
-        const groundGeo = new THREE.PlaneGeometry(20, 20);
+        // ===== BASE GROUND =====
+        const groundGeo = new THREE.PlaneGeometry(40, 40);
         const groundMat = new THREE.MeshStandardMaterial({
-            color: 0x4CAF50,
-            roughness: 0.8,
-            metalness: 0.1,
-            side: THREE.DoubleSide
+            color: 0x5a8f3c,
+            roughness: 0.9,
+            metalness: 0.0
         });
         const ground = new THREE.Mesh(groundGeo, groundMat);
         ground.rotation.x = -Math.PI / 2;
-        ground.position.y = -0.1;
         ground.receiveShadow = true;
-        this.scene.add(ground);
+        this.worldGroup.add(ground);
         
-        // Grid
-        const grid = new THREE.GridHelper(20, 10, 0x2E7D32, 0x2E7D32);
-        grid.position.y = -0.05;
-        grid.material.transparent = true;
-        grid.material.opacity = 0.2;
-        this.scene.add(grid);
+        // ===== ENCLOSURE ZONES =====
+        const zones = [
+            { x: -6, z: -4, w: 5, h: 4, color: 0xc2b280, label: 'Savanna' },
+            { x: 5, z: -3, w: 4, h: 5, color: 0x2d5a27, label: 'Forest' },
+            { x: -4, z: 5, w: 5, h: 4, color: 0x87CEEB, label: 'Aquatic' },
+            { x: 6, z: 5, w: 4, h: 4, color: 0xe8e8e8, label: 'Arctic' },
+            { x: 0, z: 0, w: 3, h: 3, color: 0x8B7355, label: 'Central' },
+        ];
         
-        // ===== FIXED: Trees stored separately =====
-        for (let i = 0; i < 20; i++) {
-            const x = (Math.random() - 0.5) * 16;
-            const z = (Math.random() - 0.5) * 16;
-            if (Math.abs(x) < 4 && Math.abs(z) < 3) continue;
-            this.createTree(x, z);
-        }
+        zones.forEach(z => {
+            const geo = new THREE.PlaneGeometry(z.w, z.h);
+            const mat = new THREE.MeshStandardMaterial({
+                color: z.color,
+                roughness: 0.85,
+                metalness: z.label === 'Aquatic' ? 0.3 : 0.0
+            });
+            const patch = new THREE.Mesh(geo, mat);
+            patch.rotation.x = -Math.PI / 2;
+            patch.position.set(z.x, 0.01, z.z);
+            patch.receiveShadow = true;
+            this.worldGroup.add(patch);
+        });
+        
+        // ===== PATHS =====
+        const pathMat = new THREE.MeshStandardMaterial({ color: 0x9e8e7e, roughness: 0.95 });
+        [
+            { x: 0, z: -1.5, w: 1.2, h: 8 },
+            { x: -1.5, z: 0, w: 8, h: 1.2 },
+        ].forEach(p => {
+            const path = new THREE.Mesh(new THREE.PlaneGeometry(p.w, p.h), pathMat);
+            path.rotation.x = -Math.PI / 2;
+            path.position.set(p.x, 0.02, p.z);
+            path.receiveShadow = true;
+            this.worldGroup.add(path);
+        });
+        
+        // ===== TREES (flat canopies for top-down visibility) =====
+        const treePositions = [
+            // Around savanna
+            [-8.5, -5.5], [-8.5, -3], [-8.5, -0.5],
+            [-3.5, -5.5], [-3.5, -6],
+            // Around forest
+            [7, -5], [7, -1], [3, -5],
+            // Around aquatic
+            [-6, 7], [-2, 7], [-6, 3],
+            // Around arctic
+            [8, 7], [4, 7], [8, 3],
+            // Scattered
+            [-10, 0], [10, 0], [0, -9], [0, 9],
+            [-9, 8], [9, -8],
+        ];
+        
+        treePositions.forEach(([x, z]) => this.createTree(x, z));
     }
     
+    // ============================================================
+    // TREES (flat canopies for top-down)
+    // ============================================================
     createTree(x, z) {
         const group = new THREE.Group();
         
+        // Trunk (barely visible from above)
         const trunk = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.04, 0.06, 0.4, 4),
-            new THREE.MeshStandardMaterial({ color: 0x8D6E63 })
+            new THREE.CylinderGeometry(0.05, 0.08, 0.3, 5),
+            new THREE.MeshStandardMaterial({ color: 0x6D4C41 })
         );
-        trunk.position.y = 0.2;
+        trunk.position.y = 0.15;
         trunk.castShadow = true;
         group.add(trunk);
         
+        // Canopy - FLAT disc for top-down readability
+        const radius = 0.3 + Math.random() * 0.25;
         const canopy = new THREE.Mesh(
-            new THREE.SphereGeometry(0.25 + Math.random() * 0.15, 5, 5),
+            new THREE.CylinderGeometry(radius, radius * 0.9, 0.15, 8),
             new THREE.MeshStandardMaterial({
-                color: new THREE.Color().setHSL(0.28 + Math.random() * 0.05, 0.5, 0.3 + Math.random() * 0.2)
+                color: new THREE.Color().setHSL(0.28 + Math.random() * 0.06, 0.55, 0.28 + Math.random() * 0.15)
             })
         );
-        canopy.position.y = 0.4 + Math.random() * 0.1;
-        canopy.scale.set(1, 0.8 + Math.random() * 0.3, 1);
+        canopy.position.y = 0.35;
         canopy.castShadow = true;
+        canopy.receiveShadow = true;
         group.add(canopy);
         
-        group.position.set(x, -0.1, z);
-        group.scale.set(1 + Math.random() * 0.5, 1 + Math.random() * 0.5, 1 + Math.random() * 0.5);
-        group.rotation.y = Math.random() * Math.PI * 2;
-        
-        this.scene.add(group);
+        group.position.set(x, 0, z);
+        this.worldGroup.add(group);
         this.trees.push(group);
     }
     
+    // ============================================================
+    // ANIMALS
+    // ============================================================
     addAnimal(animal) {
         this.animals.push(animal);
-        this.scene.add(animal.group);
+        this.worldGroup.add(animal.group);
         return animal;
     }
     
+    // ============================================================
+    // UPDATE
+    // ============================================================
     update(delta) {
         const time = performance.now() / 1000;
         this.animals.forEach(animal => animal.update(delta, time));
-        
-        // ===== FIXED: Only animate clouds (not trees) =====
-        this.clouds.forEach(cloud => {
-            cloud.position.x += cloud.userData.speed;
-            if (cloud.position.x > 10) cloud.position.x = -10;
-        });
     }
     
     // ============================================================
-    // ===== COMPLETELY FIXED: Camera rotation with alpha wrapping =====
+    // ===== BIRDS-EYE ORIENTATION =====
     // ============================================================
     setOrientation(alpha, beta, gamma, delta = 1/60) {
-        // Debug: log every 5 seconds (1% chance per frame)
+        // Debug
         if (Math.random() < 0.01) {
-            console.log(`🔄 Applying: alpha=${alpha.toFixed(1)}°, beta=${beta.toFixed(1)}°, gamma=${gamma.toFixed(1)}°`);
+            console.log(`🔄 Alpha: ${alpha.toFixed(1)}°, Beta: ${beta.toFixed(1)}°, Gamma: ${gamma.toFixed(1)}°`);
         }
         
-        // ===== FIXED: Frame-rate independent smoothing =====
-        // At 60fps: factor ≈ 0.055. At 120fps: factor ≈ 0.028. Same perceived speed.
+        // Frame-rate independent smoothing
         const sm = 1 - Math.pow(0.945, delta * 60);
         
-        // ===== FIXED: Shortest-path yaw (handles 0°/360° wrap) =====
+        // Shortest-path yaw wrapping
         let dAlpha = alpha - this.alpha;
         if (dAlpha > 180) dAlpha -= 360;
         if (dAlpha < -180) dAlpha += 360;
         this.alpha += dAlpha * sm;
-        
-        // Beta and gamma don't wrap (stay in ~-180 to 180)
         this.beta += (beta - this.beta) * sm;
         this.gamma += (gamma - this.gamma) * sm;
         
-        // Apply to camera (YXZ order already set in constructor)
+        // ===== BIRDS-EYE MAPPING =====
+        // Yaw (magnetometer) = spin the map — PRIMARY CONTROL
         this.camera.rotation.y = -THREE.MathUtils.degToRad(this.alpha);
-        this.camera.rotation.x = THREE.MathUtils.degToRad(this.beta);
-        this.camera.rotation.z = THREE.MathUtils.degToRad(this.gamma);
+        
+        // Pitch (accelerometer) = slight forward/back tilt from top-down
+        // At beta=0 → perfectly top-down. At beta=30° → tilted 7.5° forward
+        this.camera.rotation.x = this.BASE_TILT + THREE.MathUtils.degToRad(this.beta) * this.tiltAmount;
+        
+        // Roll (accelerometer) = slight bank
+        this.camera.rotation.z = THREE.MathUtils.degToRad(this.gamma) * this.tiltAmount;
     }
     
     // ============================================================
-    // ===== FIXED: Zoom works via FOV =====
+    // ZOOM (FOV-based)
     // ============================================================
     setZoom(zoomDelta) {
-        // Zoom in = narrower FOV, zoom out = wider FOV
         this.zoomLevel = Math.max(1, Math.min(5, this.zoomLevel + zoomDelta));
-        // Map zoom 1-5 to FOV 90-40
-        this.camera.fov = 90 - (this.zoomLevel - 1) * 12.5;
+        // Zoom 1 = wide overview (FOV 80), Zoom 5 = close-up (FOV 30)
+        this.camera.fov = 80 - (this.zoomLevel - 1) * 12.5;
         this.camera.updateProjectionMatrix();
     }
     
     // ============================================================
-    // Reset Camera
+    // RESET
     // ============================================================
     resetCamera() {
         this.alpha = 0;
@@ -300,13 +309,16 @@ export class ZooScene {
         this.gamma = 0;
         this.zoomLevel = 3;
         this.camera.rotation.y = 0;
-        this.camera.rotation.x = 0;
+        this.camera.rotation.x = this.BASE_TILT;  // Back to straight down
         this.camera.rotation.z = 0;
-        this.camera.fov = 70;
+        this.camera.fov = 60;
         this.camera.updateProjectionMatrix();
-        console.log('🔄 Camera reset');
+        console.log('🔄 Camera reset to birds-eye view');
     }
     
+    // ============================================================
+    // RENDER
+    // ============================================================
     render() {
         if (this.renderer && this.scene && this.camera) {
             this.renderer.render(this.scene, this.camera);
@@ -317,6 +329,9 @@ export class ZooScene {
     getScene() { return this.scene; }
     getCamera() { return this.camera; }
     
+    // ============================================================
+    // DISPOSE
+    // ============================================================
     dispose() {
         console.log('🧹 Disposing scene...');
         this.scene.traverse((child) => {
@@ -335,9 +350,7 @@ export class ZooScene {
             }
         }
         this.animals = [];
-        this.clouds = [];
         this.trees = [];
-        this.rocks = [];
         this.isReady = false;
         console.log('✅ Scene disposed');
     }
