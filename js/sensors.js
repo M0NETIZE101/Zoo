@@ -1,5 +1,5 @@
 /* ============================================================
-   SENSORS - Motion Handling (COMPLETE FIX)
+   SENSORS - Motion Handling (SIMPLIFIED)
    ============================================================ */
 
 export class MotionController {
@@ -8,10 +8,6 @@ export class MotionController {
         this.onPermission = options.onPermission || (() => {});
         this.orientation = { alpha: 0, beta: 0, gamma: 0 };
         this.isActive = false;
-        this.hasPermission = false;
-        this.permissionRequested = false;
-        this.boundHandleOrientation = null;
-        this.useFallback = false;
         this.isDesktop = this.checkDesktop();
         this.motionReceived = false;
         this.fallbackTimeout = null;
@@ -21,7 +17,6 @@ export class MotionController {
         console.log('🔍 User Agent:', navigator.userAgent);
         
         if (this.isDesktop) {
-            console.log('🖥️ Desktop detected - using mouse fallback');
             this.fallbackToMouse();
         } else {
             this.setup();
@@ -43,16 +38,20 @@ export class MotionController {
         
         console.log('📱 DeviceOrientationEvent available');
         
+        // Check if iOS (needs permission)
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            console.log('📱 iOS permission required');
+            console.log('📱 iOS detected - will request permission');
+            // iOS: wait for requestIOSPermission() call
+            this.showStatus('📱 Tap "Enter" to request motion permission');
         } else {
-            console.log('📱 No permission required - starting directly');
+            // Android: start immediately
+            console.log('📱 Android detected - starting directly');
             this.startListening();
             
-            // Fallback if no motion after 3s
+            // Fallback: if no motion after 3s, use mouse
             this.fallbackTimeout = setTimeout(() => {
                 if (!this.motionReceived && !this.useFallback) {
-                    console.warn('⚠️ No motion event received - falling back to mouse');
+                    console.warn('⚠️ No motion after 3s - falling back');
                     this.fallbackToMouse();
                 }
             }, 3000);
@@ -60,24 +59,18 @@ export class MotionController {
     }
     
     requestIOSPermission() {
-        if (this.permissionRequested) {
-            console.log('📱 Permission already requested');
-            return;
-        }
-        this.permissionRequested = true;
-        
         console.log('📱 Requesting iOS motion permission...');
+        this.permissionRequested = true;
         
         DeviceOrientationEvent.requestPermission()
             .then(response => {
                 console.log('📱 Permission response:', response);
                 if (response === 'granted') {
-                    console.log('✅ Motion permission granted!');
-                    this.hasPermission = true;
+                    console.log('✅ Permission granted!');
                     this.startListening();
                     if (this.onPermission) this.onPermission(true);
                 } else {
-                    console.warn('❌ Motion permission denied');
+                    console.warn('❌ Permission denied');
                     this.fallbackToMouse();
                     if (this.onPermission) this.onPermission(false);
                 }
@@ -90,29 +83,24 @@ export class MotionController {
     }
     
     startListening() {
-        if (this.isActive) {
-            console.log('📱 Motion already active');
-            return;
-        }
-        
-        if (this.isDesktop) {
-            this.fallbackToMouse();
-            return;
-        }
-        
-        console.log('📱 Starting device orientation listener...');
+        console.log('📱 Starting orientation listener...');
         
         this.boundHandleOrientation = this.handleOrientation.bind(this);
-        
         window.addEventListener('deviceorientation', this.boundHandleOrientation);
-        window.addEventListener('deviceorientationabsolute', this.boundHandleOrientation);
         
         this.isActive = true;
-        console.log('✅ Motion tracking active - waiting for data...');
         this.showStatus('📱 Move your phone to look around');
+        console.log('✅ Motion tracking active');
+        
+        // Send an initial update (so camera doesn't stay at 0)
+        setTimeout(() => {
+            this.onUpdate({ alpha: 0, beta: 0, gamma: 0 });
+        }, 100);
     }
     
     handleOrientation(event) {
+        if (!event) return;
+        
         if (!this.motionReceived) {
             this.motionReceived = true;
             console.log('📱 First motion event received!');
@@ -122,52 +110,27 @@ export class MotionController {
             }
         }
         
-        if (!event) return;
+        // Get values
+        const alpha = event.alpha !== null ? event.alpha : 0;
+        const beta = event.beta !== null ? event.beta : 0;
+        const gamma = event.gamma !== null ? event.gamma : 0;
         
-        // Get raw values
-        let alpha = event.alpha !== null ? event.alpha : 0;
-        let beta = event.beta !== null ? event.beta : 0;
-        let gamma = event.gamma !== null ? event.gamma : 0;
+        // Log every few seconds
+        if (Math.random() < 0.01) {
+            console.log(`🔄 Raw: alpha=${alpha.toFixed(1)}, beta=${beta.toFixed(1)}, gamma=${gamma.toFixed(1)}`);
+        }
         
-        if (isNaN(alpha) || isNaN(beta) || isNaN(gamma)) return;
-        
-        // Store orientation (no heavy compensation - let scene handle it)
-        this.orientation = {
-            alpha: alpha,
-            beta: beta,
-            gamma: gamma
-        };
+        // Update orientation
+        this.orientation = { alpha, beta, gamma };
         
         // Send to scene
         if (this.onUpdate) {
-            this.onUpdate(this.orientation);
+            this.onUpdate({ alpha, beta, gamma });
         }
-    }
-    
-    stop() {
-        this.isActive = false;
-        
-        if (this.boundHandleOrientation) {
-            window.removeEventListener('deviceorientation', this.boundHandleOrientation);
-            window.removeEventListener('deviceorientationabsolute', this.boundHandleOrientation);
-            this.boundHandleOrientation = null;
-        }
-        
-        if (this.fallbackTimeout) {
-            clearTimeout(this.fallbackTimeout);
-            this.fallbackTimeout = null;
-        }
-        
-        if (this._fallbackCleanup) {
-            this._fallbackCleanup();
-            this._fallbackCleanup = null;
-        }
-        
-        console.log('📱 Motion stopped');
     }
     
     fallbackToMouse() {
-        console.log('🖥️ Using mouse/touch fallback');
+        console.log('🖥️ Using mouse fallback');
         this.useFallback = true;
         this.isActive = true;
         this.showStatus('🖱️ Drag to look around · Scroll to zoom');
@@ -176,8 +139,6 @@ export class MotionController {
         let lastX = 0, lastY = 0;
         let rotX = 0, rotY = 0;
         let zoomLevel = 0;
-        const ZOOM_SPEED = 0.05;
-        const ROTATION_SPEED = 0.5;
         
         // Mouse drag
         const onMouseDown = (e) => {
@@ -199,7 +160,7 @@ export class MotionController {
             rotY += dy * 0.5;
             rotY = Math.max(-89, Math.min(89, rotY));
             
-            this.sendOrientationUpdate(rotX, rotY);
+            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 });
         };
         
         const onMouseUp = () => {
@@ -207,14 +168,12 @@ export class MotionController {
             document.body.style.cursor = 'default';
         };
         
-        // Scroll to zoom
+        // Scroll
         const onWheel = (e) => {
             e.preventDefault();
             zoomLevel += e.deltaY * 0.01;
             zoomLevel = Math.max(-1.5, Math.min(1.5, zoomLevel));
-            if (this._zoomCallback) {
-                this._zoomCallback(zoomLevel);
-            }
+            if (this._zoomCallback) this._zoomCallback(zoomLevel);
         };
         
         // Touch drag
@@ -244,35 +203,19 @@ export class MotionController {
             rotY += dy * 0.3;
             rotY = Math.max(-89, Math.min(89, rotY));
             
-            this.sendOrientationUpdate(rotX, rotY);
+            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 });
         };
         
-        const onTouchEnd = () => {
-            isTouching = false;
-        };
+        const onTouchEnd = () => { isTouching = false; };
         
         // Keyboard
         const onKeyDown = (e) => {
             switch(e.key) {
-                case 'ArrowLeft': rotX -= 5; this.sendOrientationUpdate(rotX, rotY); e.preventDefault(); break;
-                case 'ArrowRight': rotX += 5; this.sendOrientationUpdate(rotX, rotY); e.preventDefault(); break;
-                case 'ArrowUp': rotY -= 5; rotY = Math.max(-89, Math.min(89, rotY)); this.sendOrientationUpdate(rotX, rotY); e.preventDefault(); break;
-                case 'ArrowDown': rotY += 5; rotY = Math.max(-89, Math.min(89, rotY)); this.sendOrientationUpdate(rotX, rotY); e.preventDefault(); break;
-                case 'r': case 'R':
-                    rotX = 0; rotY = 0; zoomLevel = 0;
-                    this.sendOrientationUpdate(rotX, rotY);
-                    if (this._zoomCallback) this._zoomCallback(0);
-                    this.showStatus('🔄 View reset');
-                    e.preventDefault();
-                    break;
-                case 'f': case 'F':
-                    if (document.fullscreenElement) {
-                        document.exitFullscreen();
-                    } else {
-                        document.body.requestFullscreen();
-                    }
-                    e.preventDefault();
-                    break;
+                case 'ArrowLeft': rotX -= 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
+                case 'ArrowRight': rotX += 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
+                case 'ArrowUp': rotY -= 5; rotY = Math.max(-89, Math.min(89, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
+                case 'ArrowDown': rotY += 5; rotY = Math.max(-89, Math.min(89, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
+                case 'r': case 'R': rotX = 0; rotY = 0; zoomLevel = 0; this.onUpdate({ alpha: 0, beta: 0, gamma: 0 }); if (this._zoomCallback) this._zoomCallback(0); e.preventDefault(); break;
             }
         };
         
@@ -305,43 +248,25 @@ export class MotionController {
         console.log('✅ Desktop controls active!');
     }
     
-    sendOrientationUpdate(rotX, rotY) {
-        if (this.onUpdate) {
-            this.onUpdate({
-                alpha: rotX,
-                beta: rotY,
-                gamma: 0
-            });
-        }
-    }
-    
     showStatus(message) {
         const statusEl = document.getElementById('status-text');
-        if (statusEl) {
-            statusEl.textContent = message;
-        }
+        if (statusEl) statusEl.textContent = message;
         console.log('📱 Status:', message);
     }
     
-    isMotionAvailable() {
-        return this.isActive && this.hasPermission && !this.useFallback;
-    }
-    
-    reset() {
-        this.orientation = { alpha: 0, beta: 0, gamma: 0 };
-        if (this.onUpdate) {
-            this.onUpdate(this.orientation);
-        }
-    }
-    
     dispose() {
-        this.stop();
+        this.isActive = false;
+        if (this.boundHandleOrientation) {
+            window.removeEventListener('deviceorientation', this.boundHandleOrientation);
+        }
         if (this._fallbackCleanup) {
             this._fallbackCleanup();
             this._fallbackCleanup = null;
         }
-        this.onUpdate = null;
-        this.onPermission = null;
+        if (this.fallbackTimeout) {
+            clearTimeout(this.fallbackTimeout);
+            this.fallbackTimeout = null;
+        }
         console.log('📱 MotionController disposed');
     }
 }
