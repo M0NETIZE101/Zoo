@@ -1,5 +1,5 @@
 /* ============================================================
-   SCENE - 3D Zoo Scene (BIRDS-EYE VIEW)
+   SCENE - 3D Zoo Scene (BIRDS-EYE VIEW - COMPLETELY FIXED)
    ============================================================ */
 
 import * as THREE from 'three';
@@ -12,15 +12,21 @@ export class ZooScene {
         this.renderer = null;
         this.worldGroup = null;
         this.animals = [];
-        this.clouds = [];
         this.trees = [];
         this.isReady = false;
         
         // ===== BIRDS-EYE CONFIG =====
-        this.SCENE_Y = -15;                    // Everything lives below camera
-        this.BASE_TILT = -Math.PI / 2;         // Looking straight down
-        this.tiltAmount = 0.25;                 // Sensor tilt sensitivity
+        this.SCENE_Y = -15;
+        this.BASE_TILT = -Math.PI / 2;
+        this.tiltAmount = 0.25;
+        
+        // ===== FIXED: Consistent zoom =====
+        // FOV 55 matches zoomLevel 3 formula: 80 - (3-1) * 12.5 = 55
         this.zoomLevel = 3;
+        this.minZoom = 1;
+        this.maxZoom = 5;
+        this.minFOV = 30;   // zoomLevel 5
+        this.maxFOV = 80;   // zoomLevel 1
         
         // Smoothing state
         this.alpha = 0;
@@ -42,15 +48,15 @@ export class ZooScene {
             // ===== SCENE =====
             this.scene = new THREE.Scene();
             this.scene.background = new THREE.Color(0x87CEEB);
-            // NO FOG - want to see the whole layout clearly
             
             // ===== CAMERA =====
-            this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+            // FIXED: Consistent FOV (55 matches zoomLevel 3)
+            this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 2000);
             this.camera.position.set(0, 0, 0);
             
-            // ===== CRITICAL: Looking DOWN =====
+            // Looking DOWN
             this.camera.rotation.order = 'YXZ';
-            this.camera.rotation.x = this.BASE_TILT;  // Straight down
+            this.camera.rotation.x = this.BASE_TILT;
             
             // ===== RENDERER =====
             this.renderer = new THREE.WebGLRenderer({
@@ -66,14 +72,13 @@ export class ZooScene {
             
             this.container.appendChild(this.renderer.domElement);
             
-            // ===== WORLD GROUP (everything goes here, below camera) =====
+            // ===== WORLD GROUP =====
             this.worldGroup = new THREE.Group();
             this.worldGroup.position.y = this.SCENE_Y;
             this.scene.add(this.worldGroup);
             
             // Setup scene elements
             this.setupLights();
-            this.setupEnvironment();
             this.setupGround();
             
             // Resize
@@ -106,11 +111,9 @@ export class ZooScene {
     // LIGHTS
     // ============================================================
     setupLights() {
-        // Ambient
         const ambient = new THREE.AmbientLight(0x606080, 0.6);
         this.worldGroup.add(ambient);
         
-        // Side light for shadows from above
         const sun = new THREE.DirectionalLight(0xffeedd, 1.5);
         sun.position.set(12, 20, 8);
         sun.castShadow = true;
@@ -124,24 +127,15 @@ export class ZooScene {
         sun.shadow.camera.bottom = -20;
         this.worldGroup.add(sun);
         
-        // Hemisphere
         const hemi = new THREE.HemisphereLight(0x87CEEB, 0x3a7d44, 0.3);
         this.worldGroup.add(hemi);
-    }
-    
-    // ============================================================
-    // ENVIRONMENT
-    // ============================================================
-    setupEnvironment() {
-        // No clouds for birds-eye view - they'd clutter the view
-        // Just the sky background is enough
     }
     
     // ============================================================
     // GROUND + ZONES
     // ============================================================
     setupGround() {
-        // ===== BASE GROUND =====
+        // Base ground
         const groundGeo = new THREE.PlaneGeometry(40, 40);
         const groundMat = new THREE.MeshStandardMaterial({
             color: 0x5a8f3c,
@@ -153,7 +147,7 @@ export class ZooScene {
         ground.receiveShadow = true;
         this.worldGroup.add(ground);
         
-        // ===== ENCLOSURE ZONES =====
+        // Enclosure zones
         const zones = [
             { x: -6, z: -4, w: 5, h: 4, color: 0xc2b280, label: 'Savanna' },
             { x: 5, z: -3, w: 4, h: 5, color: 0x2d5a27, label: 'Forest' },
@@ -176,7 +170,7 @@ export class ZooScene {
             this.worldGroup.add(patch);
         });
         
-        // ===== PATHS =====
+        // Paths
         const pathMat = new THREE.MeshStandardMaterial({ color: 0x9e8e7e, roughness: 0.95 });
         [
             { x: 0, z: -1.5, w: 1.2, h: 8 },
@@ -189,18 +183,13 @@ export class ZooScene {
             this.worldGroup.add(path);
         });
         
-        // ===== TREES (flat canopies for top-down visibility) =====
+        // Trees
         const treePositions = [
-            // Around savanna
             [-8.5, -5.5], [-8.5, -3], [-8.5, -0.5],
             [-3.5, -5.5], [-3.5, -6],
-            // Around forest
             [7, -5], [7, -1], [3, -5],
-            // Around aquatic
             [-6, 7], [-2, 7], [-6, 3],
-            // Around arctic
             [8, 7], [4, 7], [8, 3],
-            // Scattered
             [-10, 0], [10, 0], [0, -9], [0, 9],
             [-9, 8], [9, -8],
         ];
@@ -209,12 +198,11 @@ export class ZooScene {
     }
     
     // ============================================================
-    // TREES (flat canopies for top-down)
+    // TREES
     // ============================================================
     createTree(x, z) {
         const group = new THREE.Group();
         
-        // Trunk (barely visible from above)
         const trunk = new THREE.Mesh(
             new THREE.CylinderGeometry(0.05, 0.08, 0.3, 5),
             new THREE.MeshStandardMaterial({ color: 0x6D4C41 })
@@ -223,7 +211,6 @@ export class ZooScene {
         trunk.castShadow = true;
         group.add(trunk);
         
-        // Canopy - FLAT disc for top-down readability
         const radius = 0.3 + Math.random() * 0.25;
         const canopy = new THREE.Mesh(
             new THREE.CylinderGeometry(radius, radius * 0.9, 0.15, 8),
@@ -259,60 +246,75 @@ export class ZooScene {
     }
     
     // ============================================================
-    // ===== BIRDS-EYE ORIENTATION =====
+    // ===== COMPLETELY FIXED: setOrientation with instant flag =====
     // ============================================================
-    setOrientation(alpha, beta, gamma, delta = 1/60) {
+    setOrientation(alpha, beta, gamma, delta = 1/60, instant = false) {
         // Debug
-        if (Math.random() < 0.01) {
+        if (Math.random() < 0.005) {
             console.log(`🔄 Alpha: ${alpha.toFixed(1)}°, Beta: ${beta.toFixed(1)}°, Gamma: ${gamma.toFixed(1)}°`);
         }
         
-        // Frame-rate independent smoothing
-        const sm = 1 - Math.pow(0.945, delta * 60);
-        
-        // Shortest-path yaw wrapping
-        let dAlpha = alpha - this.alpha;
-        if (dAlpha > 180) dAlpha -= 360;
-        if (dAlpha < -180) dAlpha += 360;
-        this.alpha += dAlpha * sm;
-        this.beta += (beta - this.beta) * sm;
-        this.gamma += (gamma - this.gamma) * sm;
+        if (instant) {
+            // ===== MOUSE/TOUCH: apply directly, skip smoothing =====
+            this.alpha = alpha;
+            this.beta = beta;
+            this.gamma = gamma;
+        } else {
+            // ===== SENSORS: smooth with frame-rate independence =====
+            const sm = 1 - Math.pow(0.945, delta * 60);
+            
+            // Shortest-path yaw wrapping
+            let dAlpha = alpha - this.alpha;
+            if (dAlpha > 180) dAlpha -= 360;
+            if (dAlpha < -180) dAlpha += 360;
+            this.alpha += dAlpha * sm;
+            this.beta += (beta - this.beta) * sm;
+            this.gamma += (gamma - this.gamma) * sm;
+        }
         
         // ===== BIRDS-EYE MAPPING =====
-        // Yaw (magnetometer) = spin the map — PRIMARY CONTROL
+        // Yaw = spin the map
         this.camera.rotation.y = -THREE.MathUtils.degToRad(this.alpha);
         
-        // Pitch (accelerometer) = slight forward/back tilt from top-down
-        // At beta=0 → perfectly top-down. At beta=30° → tilted 7.5° forward
+        // Pitch = slight forward/back tilt from top-down
         this.camera.rotation.x = this.BASE_TILT + THREE.MathUtils.degToRad(this.beta) * this.tiltAmount;
         
-        // Roll (accelerometer) = slight bank
+        // Roll = slight bank
         this.camera.rotation.z = THREE.MathUtils.degToRad(this.gamma) * this.tiltAmount;
     }
     
     // ============================================================
-    // ZOOM (FOV-based)
+    // ===== FIXED: Zoom with consistent FOV =====
     // ============================================================
     setZoom(zoomDelta) {
-        this.zoomLevel = Math.max(1, Math.min(5, this.zoomLevel + zoomDelta));
-        // Zoom 1 = wide overview (FOV 80), Zoom 5 = close-up (FOV 30)
-        this.camera.fov = 80 - (this.zoomLevel - 1) * 12.5;
+        this.zoomLevel = Math.max(this.minZoom, Math.min(this.maxZoom, this.zoomLevel + zoomDelta));
+        
+        // Map zoomLevel 1-5 to FOV 80-30
+        // zoomLevel 1 → FOV 80 (wide overview)
+        // zoomLevel 3 → FOV 55 (default)
+        // zoomLevel 5 → FOV 30 (close-up)
+        const fov = this.maxFOV - (this.zoomLevel - this.minZoom) * (this.maxFOV - this.minFOV) / (this.maxZoom - this.minZoom);
+        this.camera.fov = fov;
         this.camera.updateProjectionMatrix();
     }
     
     // ============================================================
-    // RESET
+    // ===== FIXED: Reset with consistent values =====
     // ============================================================
     resetCamera() {
         this.alpha = 0;
         this.beta = 0;
         this.gamma = 0;
         this.zoomLevel = 3;
+        
         this.camera.rotation.y = 0;
-        this.camera.rotation.x = this.BASE_TILT;  // Back to straight down
+        this.camera.rotation.x = this.BASE_TILT;
         this.camera.rotation.z = 0;
-        this.camera.fov = 60;
+        
+        // FOV 55 matches zoomLevel 3
+        this.camera.fov = 55;
         this.camera.updateProjectionMatrix();
+        
         console.log('🔄 Camera reset to birds-eye view');
     }
     
