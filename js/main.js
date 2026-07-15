@@ -1,474 +1,341 @@
 /* ============================================================
-   MAIN - Magic Window Zoo (First-Person)
+   SCENE - First-Person Magic Window Zoo
    ============================================================ */
 
-import { ZooScene } from './scene.js';
-import { Animal } from './animal.js';
-import { MotionController } from './sensors.js';
+import * as THREE from 'three';
 
-console.log('🚀 Magic Window Zoo Starting...');
-
-// ============================================================
-// DOM REFS
-// ============================================================
-const loading = document.getElementById('loading');
-const loadingText = document.getElementById('loading-text');
-const startScreen = document.getElementById('start-screen');
-const startBtn = document.getElementById('start-btn');
-const statusText = document.getElementById('status-text');
-const deviceChoice = document.getElementById('device-choice');
-const desktopBtn = document.getElementById('desktop-btn');
-const phoneBtn = document.getElementById('phone-btn');
-
-const uiOverlay = document.getElementById('ui-overlay');
-const animalCount = document.getElementById('animal-count');
-const animalName = document.getElementById('animal-name');
-const discoveryPopup = document.getElementById('discovery-popup');
-const discoveryName = document.getElementById('discovery-name');
-const discoveryFact = document.getElementById('discovery-fact');
-const discoveryTimer = document.getElementById('discovery-timer');
-
-const toast = document.getElementById('toast');
-const cameraBtn = document.getElementById('camera-btn');
-const resetBtn = document.getElementById('reset-btn');
-const shareBtn = document.getElementById('share-btn');
-
-// ============================================================
-// STATE
-// ============================================================
-let scene = null;
-let motionController = null;
-let isRunning = false;
-let isStarting = false;
-let animals = [];
-let animationFrameId = null;
-let deviceType = null;
-let discoveredCount = 0;
-let currentDiscovery = null;
-let lookTimer = 0;
-let discoveryTimeout = null;
-const LOOK_REQUIRED = 2.0; // seconds needed to discover
-
-// ============================================================
-// ANIMAL DATA (First-Person Layout - Circular)
-// ============================================================
-const ANIMAL_DATA = [
-    {
-        name: '🦁 Lion',
-        fact: 'Lions live in prides and are the only social big cats. A male lion\'s roar can be heard up to 5 miles away!',
-        color: 0xF5A623,
-        size: 0.8,
-        modelPath: null,
-        wanderRadius: 3.0,
-        position: { x: 0, z: -10 }
-    },
-    {
-        name: '🐘 Elephant',
-        fact: 'Elephants are the largest land animals on Earth. They can communicate using infrasound that travels for miles!',
-        color: 0x6D6D6D,
-        size: 1.2,
-        modelPath: null,
-        wanderRadius: 3.0,
-        position: { x: 10, z: 0 }
-    },
-    {
-        name: '🦒 Giraffe',
-        fact: 'Giraffes are the tallest animals, reaching up to 18 feet. They only need 5-30 minutes of sleep per day!',
-        color: 0xD4A574,
-        size: 0.9,
-        modelPath: null,
-        wanderRadius: 3.0,
-        position: { x: 0, z: 10 }
-    },
-    {
-        name: '🐅 Tiger',
-        fact: 'Tigers are the largest cat species. Each tiger has unique stripe patterns, like human fingerprints!',
-        color: 0xE87D1F,
-        size: 0.7,
-        modelPath: null,
-        wanderRadius: 3.0,
-        position: { x: -10, z: 0 }
-    },
-    {
-        name: '🐴 Horse',
-        fact: 'Horses can sleep standing up! They can also run within hours of being born.',
-        color: 0x8D6E63,
-        size: 0.8,
-        modelPath: './models/horse/horse.glb',
-        wanderRadius: 3.0,
-        position: { x: -7, z: -7 }
-    },
-    {
-        name: '🦊 Fox',
-        fact: 'Foxes are incredibly adaptable and can be found on every continent except Antarctica!',
-        color: 0xE87D1F,
-        size: 0.5,
-        modelPath: './models/fox/fox_baby.glb',
-        wanderRadius: 2.5,
-        position: { x: 7, z: 7 }
-    },
-];
-
-// ============================================================
-// ANIMATION CONTROLS (for testing)
-// ============================================================
-function getAnimationControls() {
-    return {
-        playAnimation: (animalIndex, animName) => {
-            if (animals[animalIndex]) {
-                animals[animalIndex].playAnimation(animName);
-            } else {
-                console.warn(`⚠️ Animal ${animalIndex} not found`);
-            }
-        },
-        listAnimations: (animalIndex) => {
-            if (animals[animalIndex] && animals[animalIndex].animationClips) {
-                const clips = Object.keys(animals[animalIndex].animationClips);
-                console.log(`🎬 Animations for ${animals[animalIndex].name}:`);
-                clips.forEach((clip, i) => {
-                    console.log(`   ${i + 1}. ${clip}`);
-                });
-                return clips;
-            } else {
-                console.warn(`⚠️ No animations found for animal ${animalIndex}`);
-                return [];
-            }
-        },
-        getAllAnimals: () => {
-            console.log(`🐾 ${animals.length} animals:`);
-            animals.forEach((animal, i) => {
-                const hasAnim = animal.animationClips ? Object.keys(animal.animationClips).length : 0;
-                console.log(`   ${i}. ${animal.name} (${hasAnim} animations)`);
-            });
-            return animals;
-        }
-    };
-}
-
-function exposeControls() {
-    window.animationControls = getAnimationControls();
-    console.log('✅ Animation controls exposed');
-}
-
-// ============================================================
-// TOAST NOTIFICATION
-// ============================================================
-let toastTimeout = null;
-
-function showToast(message) {
-    if (!toast) return;
-    toast.textContent = message;
-    toast.className = 'show';
-    clearTimeout(toastTimeout);
-    toastTimeout = setTimeout(() => {
-        toast.className = '';
-    }, 3000);
-}
-
-// ============================================================
-// SHOW DEVICE CHOICE
-// ============================================================
-function showDeviceChoice() {
-    startBtn.style.display = 'none';
-    deviceChoice.style.display = 'block';
-    statusText.textContent = 'Select your device type';
-}
-
-// ============================================================
-// INIT
-// ============================================================
-async function init() {
-    console.log('🔍 Initializing Magic Window Zoo...');
-    
-    try {
-        const container = document.getElementById('game-container');
-        if (!container) {
-            throw new Error('Game container not found!');
-        }
+export class ZooScene {
+    constructor(container) {
+        this.container = container;
+        this.scene = null;
+        this.camera = null;
+        this.renderer = null;
+        this.animals = [];
+        this.isReady = false;
         
-        // Create scene
-        scene = new ZooScene(container);
-        console.log('✅ Scene created');
+        // Magic Window Smoothing State
+        this.alpha = 0;
+        this.beta = 0;
+        this.gamma = 0;
         
-        // Create animals with positions
-        ANIMAL_DATA.forEach((data) => {
-            const animal = new Animal({
-                name: data.name,
-                fact: data.fact,
-                color: data.color,
-                size: data.size,
-                position: data.position,
-                modelPath: data.modelPath,
-                wanderRadius: data.wanderRadius
-            });
-            scene.addAnimal(animal);
-            animals.push(animal);
-            
-            if (data.modelPath) {
-                console.log(`🦄 Loading ${data.name} from: ${data.modelPath}`);
-            }
-        });
-        console.log(`✅ ${animals.length} animals created`);
+        // ===== DISCOVERY SYSTEM =====
+        this.raycaster = new THREE.Raycaster();
+        this.raycaster.far = 30;
+        this.screenCenter = new THREE.Vector2(0, 0);
+        this.currentlyDiscovered = null;
         
-        exposeControls();
-        
-        // Hide loading
-        loading.classList.add('hidden');
-        startScreen.classList.remove('hidden');
-        loadingText.textContent = '✅ Ready!';
-        
-        // Device choice
-        showDeviceChoice();
-        
-        desktopBtn.addEventListener('click', () => {
-            deviceType = 'desktop';
-            deviceChoice.style.display = 'none';
-            startBtn.style.display = 'block';
-            startBtn.textContent = '🖥️ Enter the Zoo';
-            statusText.textContent = '🖥️ Desktop mode - drag to look around';
-            desktopBtn.style.borderColor = '#F5A623';
-            phoneBtn.style.borderColor = 'rgba(255,255,255,0.15)';
-        });
-        
-        phoneBtn.addEventListener('click', () => {
-            deviceType = 'phone';
-            deviceChoice.style.display = 'none';
-            startBtn.style.display = 'block';
-            startBtn.textContent = '📱 Enter the Zoo';
-            statusText.textContent = '📱 Phone mode - motion tracking';
-            phoneBtn.style.borderColor = '#F5A623';
-            desktopBtn.style.borderColor = 'rgba(255,255,255,0.15)';
-        });
-        
-        startBtn.addEventListener('click', startExperience);
-        
-        // UI Controls
-        cameraBtn.addEventListener('click', capturePhoto);
-        resetBtn.addEventListener('click', resetView);
-        shareBtn.addEventListener('click', shareExperience);
-        
-        console.log('📋 To test animations:');
-        console.log('   window.animationControls.listAnimations(0)');
-        console.log('   window.animationControls.playAnimation(0, "walk")');
-        
-    } catch (error) {
-        console.error('❌ Error:', error);
-        loadingText.textContent = '❌ Error: ' + error.message;
-        loading.style.backgroundColor = '#2e1a1a';
-    }
-}
-
-// ============================================================
-// START EXPERIENCE
-// ============================================================
-function startExperience() {
-    if (isStarting || isRunning || !deviceType) return;
-    isStarting = true;
-    
-    console.log(`🚀 Starting experience in ${deviceType} mode...`);
-    
-    // Hide start screen, show UI
-    startScreen.classList.add('hidden');
-    uiOverlay.style.display = 'block';
-    isRunning = true;
-    
-    // ===== MOTION CONTROLLER =====
-    motionController = new MotionController({
-        onUpdate: (orientation, instant) => {
-            if (scene) {
-                scene.setOrientation(
-                    orientation.alpha,
-                    orientation.beta,
-                    orientation.gamma,
-                    1/60,
-                    instant || false
-                );
-            }
-        },
-        onPermission: (granted) => {
-            if (granted) {
-                console.log('✅ Motion permission granted!');
-                if (statusText) {
-                    statusText.textContent = '📱 Motion active! Move your phone.';
-                }
-            } else {
-                console.log('ℹ️ Using touch/mouse controls');
-                if (statusText) {
-                    statusText.textContent = '🖱️ Drag to look around';
-                }
-            }
-        }
-    });
-    
-    // ===== SET ZOOM CALLBACK =====
-    if (motionController.setZoomCallback) {
-        motionController.setZoomCallback((zoomDelta) => {
-            if (scene) {
-                scene.setZoom(zoomDelta);
-            }
-        });
+        this.setupScene();
     }
     
-    // ===== REQUEST IOS PERMISSION =====
-    if (deviceType === 'phone' &&
-        typeof DeviceOrientationEvent !== 'undefined' &&
-        typeof DeviceOrientationEvent.requestPermission === 'function') {
-        console.log('📱 Requesting iOS permission...');
-        motionController.requestIOSPermission();
-    }
-    
-    // ===== ANIMATION LOOP =====
-    let lastTime = performance.now();
-    
-    function animate(currentTime) {
-        if (!isRunning) {
-            animationFrameId = null;
+    setupScene() {
+        if (!this.container) {
+            console.error('❌ Container not found!');
             return;
         }
         
-        animationFrameId = requestAnimationFrame(animate);
-        const delta = Math.min((currentTime - lastTime) / 1000, 0.05);
-        lastTime = currentTime;
+        try {
+            // Scene
+            this.scene = new THREE.Scene();
+            this.scene.background = new THREE.Color(0x7EC8E3);
+            this.scene.fog = new THREE.FogExp2(0x7EC8E3, 0.025);
+            
+            // Camera
+            this.camera = new THREE.PerspectiveCamera(
+                70,
+                window.innerWidth / window.innerHeight,
+                0.1,
+                100
+            );
+            this.camera.position.set(0, 1.6, 0);
+            this.camera.rotation.order = 'YXZ';
+            
+            // Renderer
+            this.renderer = new THREE.WebGLRenderer({ antialias: true });
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            this.renderer.shadowMap.enabled = true;
+            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            this.renderer.toneMappingExposure = 1.1;
+            this.container.appendChild(this.renderer.domElement);
+            
+            // Build the world
+            this.setupLights();
+            this.setupEnvironment();
+            
+            window.addEventListener('resize', () => this.onResize());
+            
+            this.isReady = true;
+            console.log('✅ First-Person Magic Window Scene Ready');
+            
+        } catch (error) {
+            console.error('❌ Scene setup error:', error);
+        }
+    }
+    
+    onResize() {
+        if (!this.camera || !this.renderer) return;
+        this.camera.aspect = window.innerWidth / window.innerHeight;
+        this.camera.updateProjectionMatrix();
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    
+    // ============================================================
+    // LIGHTING
+    // ============================================================
+    setupLights() {
+        const ambient = new THREE.AmbientLight(0x8899aa, 0.7);
+        this.scene.add(ambient);
         
-        if (scene) {
-            // Update scene
-            scene.update(delta);
+        const sun = new THREE.DirectionalLight(0xffeedd, 1.8);
+        sun.position.set(15, 20, 10);
+        sun.castShadow = true;
+        sun.shadow.mapSize.width = 2048;
+        sun.shadow.mapSize.height = 2048;
+        sun.shadow.camera.near = 0.5;
+        sun.shadow.camera.far = 60;
+        sun.shadow.camera.left = -25;
+        sun.shadow.camera.right = 25;
+        sun.shadow.camera.top = 25;
+        sun.shadow.camera.bottom = -25;
+        sun.shadow.bias = -0.001;
+        this.scene.add(sun);
+        
+        const hemi = new THREE.HemisphereLight(0x87CEEB, 0x556B2F, 0.4);
+        this.scene.add(hemi);
+    }
+    
+    // ============================================================
+    // ENVIRONMENT
+    // ============================================================
+    setupEnvironment() {
+        // Ground
+        const groundGeo = new THREE.CircleGeometry(50, 32);
+        const groundMat = new THREE.MeshStandardMaterial({ 
+            color: 0x4a8c38,
+            roughness: 0.95 
+        });
+        const ground = new THREE.Mesh(groundGeo, groundMat);
+        ground.rotation.x = -Math.PI / 2;
+        ground.receiveShadow = true;
+        this.scene.add(ground);
+        
+        // Viewing platform
+        const platformGeo = new THREE.CylinderGeometry(1.5, 1.8, 0.15, 16);
+        const platformMat = new THREE.MeshStandardMaterial({ color: 0x9e8e7e, roughness: 0.9 });
+        const platform = new THREE.Mesh(platformGeo, platformMat);
+        platform.position.y = 0.075;
+        platform.receiveShadow = true;
+        this.scene.add(platform);
+
+        // Enclosures
+        const enclosureRadius = 10;
+        const zones = [
+            { angle: 0,   color: 0xc2b280, name: 'Savanna'  },
+            { angle: 90,  color: 0x2d5a27, name: 'Forest'   },
+            { angle: 180, color: 0xdce9f0, name: 'Arctic'   },
+            { angle: 270, color: 0x4a8db7, name: 'Aquatic'  },
+        ];
+        
+        zones.forEach(zone => {
+            const rad = THREE.MathUtils.degToRad(zone.angle);
+            const x = Math.sin(rad) * enclosureRadius;
+            const z = -Math.cos(rad) * enclosureRadius;
             
-            // ===== DISCOVERY SYSTEM =====
-            const discovered = scene.checkDiscovery();
+            // Ground patch
+            const patchGeo = new THREE.CircleGeometry(4, 24);
+            const patchMat = new THREE.MeshStandardMaterial({ 
+                color: zone.color, 
+                roughness: 0.85,
+                metalness: zone.name === 'Aquatic' ? 0.2 : 0.0
+            });
+            const patch = new THREE.Mesh(patchGeo, patchMat);
+            patch.rotation.x = -Math.PI / 2;
+            patch.position.set(x, 0.02, z);
+            patch.receiveShadow = true;
+            this.scene.add(patch);
             
-            if (discovered && discovered !== 'cleared') {
-                // Looking at an animal
-                discoveryPopup.style.display = 'block';
-                discoveryName.textContent = discovered.name;
-                discoveryFact.textContent = discovered.fact;
-                
-                // ===== Trigger discover() ONLY ONCE when first looked at =====
-                if (!discovered.isDiscovered) {
-                    discovered.discover();
-                    discoveredCount++;
-                    animalCount.textContent = discoveredCount;
-                    showToast(`🐾 Discovered ${discovered.name}!`);
-                    
-                    if (discoveredCount === animals.length) {
-                        setTimeout(() => {
-                            showToast('🎉 You found ALL the animals! Amazing!');
-                        }, 500);
-                    }
-                }
-                
-                // Update animal name in top bar
-                animalName.textContent = `👀 ${discovered.name}`;
-                
-            } else if (discovered === 'cleared') {
-                // Looking at empty space
-                discoveryPopup.style.display = 'none';
-                animalName.textContent = '👀 Looking around';
+            // Fence
+            const fenceGeo = new THREE.TorusGeometry(4, 0.1, 8, 32);
+            const fenceMat = new THREE.MeshStandardMaterial({ color: 0x5D4037, roughness: 0.8 });
+            const fence = new THREE.Mesh(fenceGeo, fenceMat);
+            fence.rotation.x = -Math.PI / 2;
+            fence.position.set(x, 0.4, z);
+            fence.castShadow = true;
+            this.scene.add(fence);
+            
+            // Border trees
+            for (let i = 0; i < 5; i++) {
+                const treeAngle = rad + (Math.PI / 2) + (i - 2) * 0.4;
+                const treeDist = 5.5 + Math.random() * 2;
+                this.createTree(
+                    x + Math.sin(treeAngle) * treeDist,
+                    z - Math.cos(treeAngle) * treeDist
+                );
             }
-            
-            scene.render();
-        }
-    }
-    animate(performance.now());
-    
-    isStarting = false;
-    console.log('✅ Experience started!');
-    
-    setTimeout(() => {
-        if (deviceType === 'desktop') {
-            showToast('🖥️ Drag to look around · Scroll to zoom');
-        } else {
-            showToast('📱 Move your phone to look around');
-        }
-    }, 1000);
-}
+        });
 
-// ============================================================
-// CAPTURE PHOTO
-// ============================================================
-function capturePhoto() {
-    if (!scene) return;
-    showToast('📸 Capturing...');
-    scene.render();
-    const canvas = scene.getRenderer().domElement;
-    const dataURL = canvas.toDataURL('image/png');
-    
-    const preview = document.getElementById('photo-preview');
-    const img = document.getElementById('captured-image');
-    if (preview && img) {
-        img.src = dataURL;
-        preview.style.display = 'flex';
-        showToast('✅ Photo captured!');
-    }
-}
-
-// ============================================================
-// RESET VIEW
-// ============================================================
-function resetView() {
-    if (scene) {
-        scene.resetCamera();
-        showToast('🔄 View reset');
-    }
-    if (motionController && motionController.recalibrate) {
-        motionController.recalibrate();
-    }
-}
-
-// ============================================================
-// SHARE EXPERIENCE
-// ============================================================
-function shareExperience() {
-    const data = {
-        title: '🦁 Magic Window Zoo',
-        text: `I discovered ${discoveredCount}/${animals.length} animals in the Magic Window Zoo! 🐾`,
-        url: window.location.href
-    };
-    
-    if (navigator.share) {
-        navigator.share(data).catch(() => {});
-    } else {
-        navigator.clipboard?.writeText(data.text + ' ' + data.url).then(() => {
-            showToast('📋 Link copied!');
+        // Fill trees
+        const fillTreeAngles = [45, 135, 225, 315];
+        fillTreeAngles.forEach(angle => {
+            const rad = THREE.MathUtils.degToRad(angle);
+            const dist = 5 + Math.random() * 2;
+            this.createTree(Math.sin(rad) * dist, -Math.cos(rad) * dist);
         });
     }
+    
+    // ============================================================
+    // TREES
+    // ============================================================
+    createTree(x, z) {
+        const group = new THREE.Group();
+        const height = 3 + Math.random() * 3;
+        
+        const trunk = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.15, 0.25, height, 6),
+            new THREE.MeshStandardMaterial({ color: 0x6D4C41 })
+        );
+        trunk.position.y = height / 2;
+        trunk.castShadow = true;
+        group.add(trunk);
+        
+        const canopyRadius = 1.2 + Math.random() * 0.8;
+        const canopy = new THREE.Mesh(
+            new THREE.SphereGeometry(canopyRadius, 8, 8),
+            new THREE.MeshStandardMaterial({
+                color: new THREE.Color().setHSL(0.28 + Math.random() * 0.06, 0.6, 0.25 + Math.random() * 0.15)
+            })
+        );
+        canopy.position.y = height + canopyRadius * 0.6;
+        canopy.castShadow = true;
+        group.add(canopy);
+        
+        group.position.set(x, 0, z);
+        this.scene.add(group);
+    }
+    
+    // ============================================================
+    // ANIMALS
+    // ============================================================
+    addAnimal(animal) {
+        animal.group.traverse((child) => {
+            if (child.isMesh) {
+                child.userData.animalRef = animal;
+            }
+        });
+        
+        this.animals.push(animal);
+        this.scene.add(animal.group);
+        return animal;
+    }
+    
+    // ============================================================
+    // ===== FIXED: DISCOVERY SYSTEM =====
+    // ============================================================
+    checkDiscovery() {
+        // Shoot a ray from the exact center of the screen
+        this.raycaster.setFromCamera(this.screenCenter, this.camera);
+        
+        // Check intersections with all objects in the scene
+        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
+        
+        if (intersects.length > 0) {
+            // Walk up the parent chain to find the animalRef we tagged in addAnimal()
+            let obj = intersects[0].object;
+            while (obj) {
+                if (obj.userData && obj.userData.animalRef) {
+                    const discoveredAnimal = obj.userData.animalRef;
+                    
+                    // Only trigger if it's a NEW animal being looked at
+                    if (this.currentlyDiscovered !== discoveredAnimal) {
+                        this.currentlyDiscovered = discoveredAnimal;
+                        return discoveredAnimal;
+                    }
+                    return null; // Still looking at the same animal
+                }
+                obj = obj.parent;
+            }
+        }
+        
+        // Looking at empty space
+        if (this.currentlyDiscovered) {
+            this.currentlyDiscovered = null;
+            return 'cleared';
+        }
+        
+        return null;
+    }
+    
+    // ============================================================
+    // UPDATE
+    // ============================================================
+    update(delta) {
+        const time = performance.now() / 1000;
+        this.animals.forEach(animal => animal.update(delta, time));
+    }
+    
+    // ============================================================
+    // MAGIC WINDOW ORIENTATION
+    // ============================================================
+    setOrientation(alpha, beta, gamma, delta = 1/60, instant = false) {
+        if (instant) {
+            this.alpha = alpha;
+            this.beta = beta;
+            this.gamma = gamma;
+        } else {
+            const sm = 1 - Math.pow(0.945, delta * 60);
+            
+            let dAlpha = alpha - this.alpha;
+            if (dAlpha > 180) dAlpha -= 360;
+            if (dAlpha < -180) dAlpha += 360;
+            
+            this.alpha += dAlpha * sm;
+            this.beta  += (beta  - this.beta)  * sm;
+            this.gamma += (gamma - this.gamma) * sm;
+        }
+
+        this.camera.rotation.y = -THREE.MathUtils.degToRad(this.alpha);
+        this.camera.rotation.x =  THREE.MathUtils.degToRad(this.beta);
+        this.camera.rotation.z =  THREE.MathUtils.degToRad(this.gamma);
+    }
+    
+    // ============================================================
+    // ZOOM & RESET
+    // ============================================================
+    setZoom(zoomDelta) {
+        // Placeholder - implement FOV zoom if needed
+    }
+    
+    resetCamera() {
+        this.alpha = 0;
+        this.beta = 0;
+        this.gamma = 0;
+        this.camera.rotation.y = 0;
+        this.camera.rotation.x = 0;
+        this.camera.rotation.z = 0;
+        console.log('🔄 Camera reset');
+    }
+    
+    // ============================================================
+    // RENDER & LIFECYCLE
+    // ============================================================
+    render() {
+        if (this.renderer && this.scene && this.camera) {
+            this.renderer.render(this.scene, this.camera);
+        }
+    }
+    
+    dispose() {
+        this.scene.traverse((child) => {
+            if (child.isMesh) {
+                child.geometry?.dispose();
+                if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
+                else child.material?.dispose();
+            }
+        });
+        this.renderer?.dispose();
+        this.renderer?.domElement?.parentNode?.removeChild(this.renderer.domElement);
+        this.animals = [];
+        this.isReady = false;
+    }
 }
-
-// ============================================================
-// CLEANUP
-// ============================================================
-function dispose() {
-    console.log('🧹 Disposing...');
-    isRunning = false;
-    
-    if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-    }
-    
-    if (motionController) {
-        motionController.dispose();
-        motionController = null;
-    }
-    
-    if (scene) {
-        scene.dispose();
-        scene = null;
-    }
-    
-    animals = [];
-    console.log('✅ Disposed');
-}
-
-// ============================================================
-// START
-// ============================================================
-document.addEventListener('DOMContentLoaded', init);
-window.addEventListener('beforeunload', dispose);
-
-window.__zoo = {
-    scene: () => scene,
-    animals: () => animals,
-    controls: () => getAnimationControls(),
-    dispose: dispose
-};
