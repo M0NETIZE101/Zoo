@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>🦁 Zoo Explorer</title>
+    <title>🦁 Magic Window Zoo</title>
     
     <link rel="stylesheet" href="css/style.css" />
     
@@ -20,7 +20,7 @@
     <!-- ===== LOADING ===== -->
     <div id="loading">
         <div class="spinner"></div>
-        <p id="loading-text">🦁 Loading Zoo Explorer...</p>
+        <p id="loading-text">🦁 Loading Magic Window Zoo...</p>
         <p class="sub-text">Preparing your wildlife adventure</p>
     </div>
 
@@ -28,26 +28,19 @@
     <div id="start-screen">
         <div class="card">
             <div class="logo">🦁</div>
-            <h1>Zoo Explorer</h1>
-            <p>Explore the wild animal kingdom in 3D!</p>
+            <h1>Magic Window Zoo</h1>
+            <p>Look through your phone into a living zoo!</p>
             
-            <!-- ===== DEVICE CHOICE ===== -->
+            <!-- Device Choice -->
             <div id="device-choice">
                 <p style="font-size: 14px; opacity: 0.7; margin-bottom: 12px;">Select your device:</p>
                 <div style="display: flex; gap: 10px;">
-                    <button id="desktop-btn" class="device-btn" style="flex: 1; padding: 12px; background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.15); border-radius: 12px; color: white; cursor: pointer; font-size: 16px; transition: all 0.3s;">
-                        🖥️ Desktop
-                    </button>
-                    <button id="phone-btn" class="device-btn" style="flex: 1; padding: 12px; background: rgba(255,255,255,0.08); border: 2px solid rgba(255,255,255,0.15); border-radius: 12px; color: white; cursor: pointer; font-size: 16px; transition: all 0.3s;">
-                        📱 Phone
-                    </button>
+                    <button id="desktop-btn" class="device-btn">🖥️ Desktop</button>
+                    <button id="phone-btn" class="device-btn">📱 Phone</button>
                 </div>
             </div>
             
-            <button id="start-btn" style="display: none; width: 100%; padding: 16px; background: linear-gradient(135deg, #F5A623, #D4891B); border: none; border-radius: 50px; color: white; font-size: 18px; font-weight: 600; cursor: pointer; transition: all 0.3s;">
-                🌿 Enter the Zoo
-            </button>
-            
+            <button id="start-btn" style="display: none;">🌿 Enter the Zoo</button>
             <p id="status-text" class="status">Select your device to begin</p>
         </div>
     </div>
@@ -57,7 +50,7 @@
 
     <!-- ===== UI OVERLAY ===== -->
     <div id="ui-overlay" style="display: none;">
-        <!-- Top Bar -->
+        <!-- Top: Collection -->
         <div id="top-bar">
             <div id="collection-count">
                 <span>🐾</span>
@@ -65,16 +58,19 @@
                 <span>/ 6</span>
             </div>
             <div id="current-animal">
-                <span id="animal-name">🌿 Exploring</span>
+                <span id="animal-name">👀 Looking around</span>
             </div>
         </div>
 
-        <!-- Animal Info Popup -->
-        <div id="animal-info" style="display: none;">
-            <div class="info-card">
-                <h2 id="info-name">Animal</h2>
-                <p id="info-fact">Amazing fact!</p>
-                <button id="info-close-btn">✕</button>
+        <!-- Center: Discovery Popup -->
+        <div id="discovery-popup" style="display: none;">
+            <div class="discovery-card">
+                <h2 id="discovery-name">🦁 Lion</h2>
+                <p id="discovery-fact">Looking at an animal reveals its fact!</p>
+                <div class="discovery-progress">
+                    <div class="progress-ring"></div>
+                    <span id="discovery-timer">3s</span>
+                </div>
             </div>
         </div>
 

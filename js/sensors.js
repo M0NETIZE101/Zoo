@@ -1,5 +1,5 @@
 /* ============================================================
-   SENSORS - Motion Handling (BIRD'S EYE FIXED)
+   SENSORS - Motion Handling (SIMPLIFIED)
    ============================================================ */
 
 export class MotionController {
@@ -12,18 +12,9 @@ export class MotionController {
         this.motionReceived = false;
         this.fallbackTimeout = null;
         
-        // Calibration
-        this.calibrated = false;
-        this.calAlpha = 0;
-        
-        // Zoom — available in ALL modes (not just fallback)
-        this._zoomCallback = null;
-        this.setZoomCallback = (callback) => {
-            this._zoomCallback = callback;
-        };
-        
         console.log('📱 MotionController created');
         console.log('🖥️ Is desktop:', this.isDesktop);
+        console.log('🔍 User Agent:', navigator.userAgent);
         
         if (this.isDesktop) {
             this.fallbackToMouse();
@@ -45,19 +36,25 @@ export class MotionController {
             return;
         }
         
+        console.log('📱 DeviceOrientationEvent available');
+        
+        // Check if iOS (needs permission)
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
             console.log('📱 iOS detected - will request permission');
+            // iOS: wait for requestIOSPermission() call
             this.showStatus('📱 Tap "Enter" to request motion permission');
         } else {
+            // Android: start immediately
             console.log('📱 Android detected - starting directly');
             this.startListening();
             
+            // Fallback: if no motion after 3s, use mouse
             this.fallbackTimeout = setTimeout(() => {
                 if (!this.motionReceived && !this.useFallback) {
-                    console.warn('⚠️ No motion after 5s - falling back');
+                    console.warn('⚠️ No motion after 3s - falling back');
                     this.fallbackToMouse();
                 }
-            }, 5000);  // Was 3000 — increased for slow devices
+            }, 3000);
         }
     }
     
@@ -67,6 +64,7 @@ export class MotionController {
         
         DeviceOrientationEvent.requestPermission()
             .then(response => {
+                console.log('📱 Permission response:', response);
                 if (response === 'granted') {
                     console.log('✅ Permission granted!');
                     this.startListening();
@@ -86,13 +84,17 @@ export class MotionController {
     
     startListening() {
         console.log('📱 Starting orientation listener...');
+        
         this.boundHandleOrientation = this.handleOrientation.bind(this);
         window.addEventListener('deviceorientation', this.boundHandleOrientation);
+        
         this.isActive = true;
         this.showStatus('📱 Move your phone to look around');
+        console.log('✅ Motion tracking active');
         
+        // Send an initial update (so camera doesn't stay at 0)
         setTimeout(() => {
-            this.onUpdate({ alpha: 0, beta: 0, gamma: 0 }, false);
+            this.onUpdate({ alpha: 0, beta: 0, gamma: 0 });
         }, 100);
     }
     
@@ -108,37 +110,23 @@ export class MotionController {
             }
         }
         
-        const rawAlpha = event.alpha !== null ? event.alpha : 0;
+        // Get values
+        const alpha = event.alpha !== null ? event.alpha : 0;
         const beta = event.beta !== null ? event.beta : 0;
         const gamma = event.gamma !== null ? event.gamma : 0;
         
-        // Calibrate on first real reading
-        if (!this.calibrated && rawAlpha !== 0) {
-            this.calAlpha = rawAlpha;
-            this.calibrated = true;
-            console.log('🧭 Calibrated to alpha:', this.calAlpha.toFixed(1));
+        // Log every few seconds
+        if (Math.random() < 0.01) {
+            console.log(`🔄 Raw: alpha=${alpha.toFixed(1)}, beta=${beta.toFixed(1)}, gamma=${gamma.toFixed(1)}`);
         }
         
-        // Apply calibration offset with wrapping
-        let alpha = rawAlpha - this.calAlpha;
-        if (alpha < -180) alpha += 360;
-        if (alpha > 180) alpha -= 360;
-        
+        // Update orientation
         this.orientation = { alpha, beta, gamma };
         
-        // false = not instant (scene will smooth)
+        // Send to scene
         if (this.onUpdate) {
-            this.onUpdate({ alpha, beta, gamma }, false);
+            this.onUpdate({ alpha, beta, gamma });
         }
-    }
-    
-    recalibrate() {
-        // Make current heading the new "forward"
-        this.calAlpha += this.orientation.alpha;
-        if (this.calAlpha > 360) this.calAlpha -= 360;
-        if (this.calAlpha < 0) this.calAlpha += 360;
-        this.onUpdate({ alpha: 0, beta: this.orientation.beta, gamma: this.orientation.gamma }, false);
-        console.log('🧭 Recalibrated — current direction is now forward');
     }
     
     fallbackToMouse() {
@@ -152,6 +140,7 @@ export class MotionController {
         let rotX = 0, rotY = 0;
         let zoomLevel = 0;
         
+        // Mouse drag
         const onMouseDown = (e) => {
             if (e.target.closest('button')) return;
             isDragging = true;
@@ -169,10 +158,9 @@ export class MotionController {
             
             rotX += dx * 0.5;
             rotY += dy * 0.5;
-            rotY = Math.max(-30, Math.min(30, rotY));  // Was ±89 — fixed for bird's eye
+            rotY = Math.max(-89, Math.min(89, rotY));
             
-            // true = instant (skip scene smoothing, avoids double-smooth lag)
-            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
+            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 });
         };
         
         const onMouseUp = () => {
@@ -180,6 +168,7 @@ export class MotionController {
             document.body.style.cursor = 'default';
         };
         
+        // Scroll
         const onWheel = (e) => {
             e.preventDefault();
             zoomLevel += e.deltaY * 0.01;
@@ -187,6 +176,7 @@ export class MotionController {
             if (this._zoomCallback) this._zoomCallback(zoomLevel);
         };
         
+        // Touch drag
         let touchX = 0, touchY = 0;
         let isTouching = false;
         
@@ -211,43 +201,21 @@ export class MotionController {
             
             rotX += dx * 0.3;
             rotY += dy * 0.3;
-            rotY = Math.max(-30, Math.min(30, rotY));  // Was ±89 — fixed for bird's eye
+            rotY = Math.max(-89, Math.min(89, rotY));
             
-            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
+            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 });
         };
         
         const onTouchEnd = () => { isTouching = false; };
         
+        // Keyboard
         const onKeyDown = (e) => {
             switch(e.key) {
-                case 'ArrowLeft':
-                    rotX -= 5;
-                    this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
-                    e.preventDefault();
-                    break;
-                case 'ArrowRight':
-                    rotX += 5;
-                    this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
-                    e.preventDefault();
-                    break;
-                case 'ArrowUp':
-                    rotY -= 3;  // Smaller step for bird's eye
-                    rotY = Math.max(-30, Math.min(30, rotY));
-                    this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
-                    e.preventDefault();
-                    break;
-                case 'ArrowDown':
-                    rotY += 3;
-                    rotY = Math.max(-30, Math.min(30, rotY));
-                    this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
-                    e.preventDefault();
-                    break;
-                case 'r': case 'R':
-                    rotX = 0; rotY = 0; zoomLevel = 0;
-                    this.onUpdate({ alpha: 0, beta: 0, gamma: 0 }, true);
-                    if (this._zoomCallback) this._zoomCallback(0);
-                    e.preventDefault();
-                    break;
+                case 'ArrowLeft': rotX -= 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
+                case 'ArrowRight': rotX += 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
+                case 'ArrowUp': rotY -= 5; rotY = Math.max(-89, Math.min(89, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
+                case 'ArrowDown': rotY += 5; rotY = Math.max(-89, Math.min(89, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
+                case 'r': case 'R': rotX = 0; rotY = 0; zoomLevel = 0; this.onUpdate({ alpha: 0, beta: 0, gamma: 0 }); if (this._zoomCallback) this._zoomCallback(0); e.preventDefault(); break;
             }
         };
         
@@ -272,12 +240,18 @@ export class MotionController {
             document.body.style.cursor = 'default';
         };
         
+        this._zoomCallback = null;
+        this.setZoomCallback = (callback) => {
+            this._zoomCallback = callback;
+        };
+        
         console.log('✅ Desktop controls active!');
     }
     
     showStatus(message) {
         const statusEl = document.getElementById('status-text');
         if (statusEl) statusEl.textContent = message;
+        console.log('📱 Status:', message);
     }
     
     dispose() {
@@ -293,5 +267,6 @@ export class MotionController {
             clearTimeout(this.fallbackTimeout);
             this.fallbackTimeout = null;
         }
+        console.log('📱 MotionController disposed');
     }
 }

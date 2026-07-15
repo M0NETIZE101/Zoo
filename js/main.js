@@ -1,12 +1,12 @@
 /* ============================================================
-   MAIN - Zoo Explorer (iOS PERMISSION FIXED)
+   MAIN - Magic Window Zoo (First-Person)
    ============================================================ */
 
 import { ZooScene } from './scene.js';
 import { Animal } from './animal.js';
 import { MotionController } from './sensors.js';
 
-console.log('🚀 Zoo Explorer Starting...');
+console.log('🚀 Magic Window Zoo Starting...');
 
 // ============================================================
 // DOM REFS
@@ -20,6 +20,19 @@ const deviceChoice = document.getElementById('device-choice');
 const desktopBtn = document.getElementById('desktop-btn');
 const phoneBtn = document.getElementById('phone-btn');
 
+const uiOverlay = document.getElementById('ui-overlay');
+const animalCount = document.getElementById('animal-count');
+const animalName = document.getElementById('animal-name');
+const discoveryPopup = document.getElementById('discovery-popup');
+const discoveryName = document.getElementById('discovery-name');
+const discoveryFact = document.getElementById('discovery-fact');
+const discoveryTimer = document.getElementById('discovery-timer');
+
+const toast = document.getElementById('toast');
+const cameraBtn = document.getElementById('camera-btn');
+const resetBtn = document.getElementById('reset-btn');
+const shareBtn = document.getElementById('share-btn');
+
 // ============================================================
 // STATE
 // ============================================================
@@ -30,57 +43,74 @@ let isStarting = false;
 let animals = [];
 let animationFrameId = null;
 let deviceType = null;
+let discoveredCount = 0;
+let currentDiscovery = null;
+let lookTimer = 0;
+let discoveryTimeout = null;
+const LOOK_REQUIRED = 2.0; // seconds needed to discover
 
 // ============================================================
-// ANIMAL DATA
+// ANIMAL DATA (First-Person Layout - Circular)
 // ============================================================
 const ANIMAL_DATA = [
+    {
+        name: '🦁 Lion',
+        fact: 'Lions live in prides and are the only social big cats. A male lion\'s roar can be heard up to 5 miles away!',
+        color: 0xF5A623,
+        size: 0.8,
+        modelPath: null,
+        wanderRadius: 3.0,
+        position: { x: 0, z: -10 }
+    },
+    {
+        name: '🐘 Elephant',
+        fact: 'Elephants are the largest land animals on Earth. They can communicate using infrasound that travels for miles!',
+        color: 0x6D6D6D,
+        size: 1.2,
+        modelPath: null,
+        wanderRadius: 3.0,
+        position: { x: 10, z: 0 }
+    },
+    {
+        name: '🦒 Giraffe',
+        fact: 'Giraffes are the tallest animals, reaching up to 18 feet. They only need 5-30 minutes of sleep per day!',
+        color: 0xD4A574,
+        size: 0.9,
+        modelPath: null,
+        wanderRadius: 3.0,
+        position: { x: 0, z: 10 }
+    },
+    {
+        name: '🐅 Tiger',
+        fact: 'Tigers are the largest cat species. Each tiger has unique stripe patterns, like human fingerprints!',
+        color: 0xE87D1F,
+        size: 0.7,
+        modelPath: null,
+        wanderRadius: 3.0,
+        position: { x: -10, z: 0 }
+    },
     {
         name: '🐴 Horse',
         fact: 'Horses can sleep standing up! They can also run within hours of being born.',
         color: 0x8D6E63,
-        size: 0.6,
-        modelPath: './models/horse/horse.glb'
+        size: 0.8,
+        modelPath: './models/horse/horse.glb',
+        wanderRadius: 3.0,
+        position: { x: -7, z: -7 }
     },
     {
         name: '🦊 Fox',
         fact: 'Foxes are incredibly adaptable and can be found on every continent except Antarctica!',
         color: 0xE87D1F,
-        size: 0.4,
-        modelPath: './models/fox/fox_baby.glb'
-    },
-    {
-        name: '🦁 Lion',
-        fact: 'Lions live in prides and are the only social big cats.',
-        color: 0xF5A623,
         size: 0.5,
-        modelPath: null
-    },
-    {
-        name: '🐘 Elephant',
-        fact: 'Elephants are the largest land animals on Earth.',
-        color: 0x6D6D6D,
-        size: 0.7,
-        modelPath: null
-    },
-    {
-        name: '🦒 Giraffe',
-        fact: 'Giraffes are the tallest animals, reaching up to 18 feet.',
-        color: 0xD4A574,
-        size: 0.6,
-        modelPath: null
-    },
-    {
-        name: '🐅 Tiger',
-        fact: 'Tigers are the largest cat species with unique stripe patterns.',
-        color: 0xE87D1F,
-        size: 0.5,
-        modelPath: null
+        modelPath: './models/fox/fox_baby.glb',
+        wanderRadius: 2.5,
+        position: { x: 7, z: 7 }
     },
 ];
 
 // ============================================================
-// ANIMATION CONTROLS
+// ANIMATION CONTROLS (for testing)
 // ============================================================
 function getAnimationControls() {
     return {
@@ -121,6 +151,21 @@ function exposeControls() {
 }
 
 // ============================================================
+// TOAST NOTIFICATION
+// ============================================================
+let toastTimeout = null;
+
+function showToast(message) {
+    if (!toast) return;
+    toast.textContent = message;
+    toast.className = 'show';
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+        toast.className = '';
+    }, 3000);
+}
+
+// ============================================================
 // SHOW DEVICE CHOICE
 // ============================================================
 function showDeviceChoice() {
@@ -133,37 +178,32 @@ function showDeviceChoice() {
 // INIT
 // ============================================================
 async function init() {
-    console.log('🔍 Initializing...');
+    console.log('🔍 Initializing Magic Window Zoo...');
     
     try {
         const container = document.getElementById('game-container');
         if (!container) {
             throw new Error('Game container not found!');
         }
+        
+        // Create scene
         scene = new ZooScene(container);
         console.log('✅ Scene created');
         
-        const positions = [
-            { x: -2.5, z: -1 },
-            { x: 2.5, z: 0.5 },
-            { x: -1, z: 2.5 },
-            { x: 1.5, z: -2 },
-            { x: -3, z: 1.5 },
-            { x: 3, z: -1.5 }
-        ];
-        
-        ANIMAL_DATA.forEach((data, i) => {
-            const pos = positions[i % positions.length];
+        // Create animals with positions
+        ANIMAL_DATA.forEach((data) => {
             const animal = new Animal({
                 name: data.name,
                 fact: data.fact,
                 color: data.color,
                 size: data.size,
-                position: pos,
-                modelPath: data.modelPath
+                position: data.position,
+                modelPath: data.modelPath,
+                wanderRadius: data.wanderRadius
             });
             scene.addAnimal(animal);
             animals.push(animal);
+            
             if (data.modelPath) {
                 console.log(`🦄 Loading ${data.name} from: ${data.modelPath}`);
             }
@@ -172,10 +212,12 @@ async function init() {
         
         exposeControls();
         
+        // Hide loading
         loading.classList.add('hidden');
         startScreen.classList.remove('hidden');
         loadingText.textContent = '✅ Ready!';
         
+        // Device choice
         showDeviceChoice();
         
         desktopBtn.addEventListener('click', () => {
@@ -184,7 +226,6 @@ async function init() {
             startBtn.style.display = 'block';
             startBtn.textContent = '🖥️ Enter the Zoo';
             statusText.textContent = '🖥️ Desktop mode - drag to look around';
-            startBtn.disabled = false;
             desktopBtn.style.borderColor = '#F5A623';
             phoneBtn.style.borderColor = 'rgba(255,255,255,0.15)';
         });
@@ -195,16 +236,20 @@ async function init() {
             startBtn.style.display = 'block';
             startBtn.textContent = '📱 Enter the Zoo';
             statusText.textContent = '📱 Phone mode - motion tracking';
-            startBtn.disabled = false;
             phoneBtn.style.borderColor = '#F5A623';
             desktopBtn.style.borderColor = 'rgba(255,255,255,0.15)';
         });
         
         startBtn.addEventListener('click', startExperience);
         
+        // UI Controls
+        cameraBtn.addEventListener('click', capturePhoto);
+        resetBtn.addEventListener('click', resetView);
+        shareBtn.addEventListener('click', shareExperience);
+        
         console.log('📋 To test animations:');
-        console.log('   window.animationControls.listAnimations(0) - Horse');
-        console.log('   window.animationControls.listAnimations(1) - Fox');
+        console.log('   window.animationControls.listAnimations(0)');
+        console.log('   window.animationControls.playAnimation(0, "walk")');
         
     } catch (error) {
         console.error('❌ Error:', error);
@@ -214,7 +259,7 @@ async function init() {
 }
 
 // ============================================================
-// START EXPERIENCE (FIXED: permission requested immediately)
+// START EXPERIENCE
 // ============================================================
 function startExperience() {
     if (isStarting || isRunning || !deviceType) return;
@@ -222,70 +267,54 @@ function startExperience() {
     
     console.log(`🚀 Starting experience in ${deviceType} mode...`);
     
-    // ===== FIXED: If phone, create motion controller and request permission NOW =====
-    if (deviceType === 'phone') {
-        // Create motion controller with callbacks
-        motionController = new MotionController({
-            onUpdate: (orientation) => {
-                if (scene) {
-                    scene.setOrientation(
-                        orientation.alpha,
-                        orientation.beta,
-                        orientation.gamma
-                    );
-                }
-            },
-            onPermission: (granted) => {
-                if (granted) {
-                    console.log('✅ Motion permission granted!');
-                    if (statusText) {
-                        statusText.textContent = '📱 Motion active! Move your phone.';
-                    }
-                } else {
-                    console.log('ℹ️ Using touch/mouse controls');
-                    if (statusText) {
-                        statusText.textContent = '🖱️ Drag to look around';
-                    }
-                }
-            }
-        });
-        
-        // Request permission immediately (before hiding UI)
-        if (typeof DeviceOrientationEvent !== 'undefined' &&
-            typeof DeviceOrientationEvent.requestPermission === 'function') {
-            console.log('📱 Requesting iOS permission NOW...');
-            motionController.requestIOSPermission();
-        }
-    }
-    
-    // ===== HIDE UI =====
+    // Hide start screen, show UI
     startScreen.classList.add('hidden');
-    document.getElementById('ui-overlay').style.display = 'block';
+    uiOverlay.style.display = 'block';
     isRunning = true;
     
-    // ===== DESKTOP MODE =====
-    if (deviceType === 'desktop') {
-        motionController = new MotionController({
-            onUpdate: (orientation) => {
-                if (scene) {
-                    scene.setOrientation(
-                        orientation.alpha,
-                        orientation.beta,
-                        orientation.gamma
-                    );
+    // ===== MOTION CONTROLLER =====
+    motionController = new MotionController({
+        onUpdate: (orientation, instant) => {
+            if (scene) {
+                scene.setOrientation(
+                    orientation.alpha,
+                    orientation.beta,
+                    orientation.gamma,
+                    1/60,
+                    instant || false
+                );
+            }
+        },
+        onPermission: (granted) => {
+            if (granted) {
+                console.log('✅ Motion permission granted!');
+                if (statusText) {
+                    statusText.textContent = '📱 Motion active! Move your phone.';
+                }
+            } else {
+                console.log('ℹ️ Using touch/mouse controls');
+                if (statusText) {
+                    statusText.textContent = '🖱️ Drag to look around';
                 }
             }
+        }
+    });
+    
+    // ===== SET ZOOM CALLBACK =====
+    if (motionController.setZoomCallback) {
+        motionController.setZoomCallback((zoomDelta) => {
+            if (scene) {
+                scene.setZoom(zoomDelta);
+            }
         });
-        if (motionController.setZoomCallback) {
-            motionController.setZoomCallback((zoomLevel) => {
-                if (scene) {
-                    scene.setZoom(zoomLevel);
-                }
-            });
-        }
-        if (statusText) {
-            statusText.textContent = '🖥️ Drag to look around · Scroll to zoom';
-        }
+    }
+    
+    // ===== REQUEST IOS PERMISSION =====
+    if (deviceType === 'phone' &&
+        typeof DeviceOrientationEvent !== 'undefined' &&
+        typeof DeviceOrientationEvent.requestPermission === 'function') {
+        console.log('📱 Requesting iOS permission...');
+        motionController.requestIOSPermission();
     }
     
     // ===== ANIMATION LOOP =====
@@ -302,7 +331,41 @@ function startExperience() {
         lastTime = currentTime;
         
         if (scene) {
+            // Update scene
             scene.update(delta);
+            
+            // ===== DISCOVERY SYSTEM =====
+            const discovered = scene.checkDiscovery();
+            
+            if (discovered && discovered !== 'cleared') {
+                // Looking at an animal
+                discoveryPopup.style.display = 'block';
+                discoveryName.textContent = discovered.name;
+                discoveryFact.textContent = discovered.fact;
+                
+                // ===== Trigger discover() ONLY ONCE when first looked at =====
+                if (!discovered.isDiscovered) {
+                    discovered.discover();
+                    discoveredCount++;
+                    animalCount.textContent = discoveredCount;
+                    showToast(`🐾 Discovered ${discovered.name}!`);
+                    
+                    if (discoveredCount === animals.length) {
+                        setTimeout(() => {
+                            showToast('🎉 You found ALL the animals! Amazing!');
+                        }, 500);
+                    }
+                }
+                
+                // Update animal name in top bar
+                animalName.textContent = `👀 ${discovered.name}`;
+                
+            } else if (discovered === 'cleared') {
+                // Looking at empty space
+                discoveryPopup.style.display = 'none';
+                animalName.textContent = '👀 Looking around';
+            }
+            
             scene.render();
         }
     }
@@ -321,20 +384,54 @@ function startExperience() {
 }
 
 // ============================================================
-// TOAST NOTIFICATION
+// CAPTURE PHOTO
 // ============================================================
-let toastTimeout = null;
-
-function showToast(message) {
-    const toast = document.getElementById('toast');
-    if (!toast) return;
+function capturePhoto() {
+    if (!scene) return;
+    showToast('📸 Capturing...');
+    scene.render();
+    const canvas = scene.getRenderer().domElement;
+    const dataURL = canvas.toDataURL('image/png');
     
-    toast.textContent = message;
-    toast.className = 'show';
-    clearTimeout(toastTimeout);
-    toastTimeout = setTimeout(() => {
-        toast.className = '';
-    }, 3000);
+    const preview = document.getElementById('photo-preview');
+    const img = document.getElementById('captured-image');
+    if (preview && img) {
+        img.src = dataURL;
+        preview.style.display = 'flex';
+        showToast('✅ Photo captured!');
+    }
+}
+
+// ============================================================
+// RESET VIEW
+// ============================================================
+function resetView() {
+    if (scene) {
+        scene.resetCamera();
+        showToast('🔄 View reset');
+    }
+    if (motionController && motionController.recalibrate) {
+        motionController.recalibrate();
+    }
+}
+
+// ============================================================
+// SHARE EXPERIENCE
+// ============================================================
+function shareExperience() {
+    const data = {
+        title: '🦁 Magic Window Zoo',
+        text: `I discovered ${discoveredCount}/${animals.length} animals in the Magic Window Zoo! 🐾`,
+        url: window.location.href
+    };
+    
+    if (navigator.share) {
+        navigator.share(data).catch(() => {});
+    } else {
+        navigator.clipboard?.writeText(data.text + ' ' + data.url).then(() => {
+            showToast('📋 Link copied!');
+        });
+    }
 }
 
 // ============================================================
