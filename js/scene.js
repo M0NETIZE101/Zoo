@@ -1,5 +1,5 @@
 /* ============================================================
-   SCENE - 3D Zoo Scene (FIXED CAMERA ROTATION)
+   SCENE - 3D Zoo Scene (FIXED - Based on Working Magic Window)
    ============================================================ */
 
 import * as THREE from 'three';
@@ -14,6 +14,14 @@ export class ZooScene {
         this.objects = [];
         this.isReady = false;
         this.zoomLevel = 3;
+        
+        // Smoothing state
+        this.alpha = 0;
+        this.beta = 0;
+        this.gamma = 0;
+        this.targetAlpha = 0;
+        this.targetBeta = 0;
+        this.targetGamma = 0;
         
         this.setupScene();
     }
@@ -32,9 +40,12 @@ export class ZooScene {
             this.scene.background = new THREE.Color(0x87CEEB);
             this.scene.fog = new THREE.Fog(0x87CEEB, 15, 25);
             
-            // Camera
-            this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-            this.camera.position.set(0, 1.6, this.zoomLevel);
+            // Camera - set to origin like working code
+            this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
+            this.camera.position.set(0, 0, 0);
+            
+            // ===== CRITICAL: Set rotation order to YXZ =====
+            this.camera.rotation.order = 'YXZ';
             
             // Renderer
             this.renderer = new THREE.WebGLRenderer({
@@ -102,7 +113,7 @@ export class ZooScene {
     }
     
     setupEnvironment() {
-        // Sky gradient
+        // Simple sky gradient
         const skyGeo = new THREE.SphereGeometry(50, 32, 32);
         const skyMat = new THREE.ShaderMaterial({
             side: THREE.BackSide,
@@ -135,7 +146,7 @@ export class ZooScene {
         const sky = new THREE.Mesh(skyGeo, skyMat);
         this.scene.add(sky);
         
-        // Clouds
+        // Simple clouds
         for (let i = 0; i < 12; i++) {
             const cloud = new THREE.Mesh(
                 new THREE.SphereGeometry(0.3 + Math.random() * 0.5, 6, 6),
@@ -238,7 +249,7 @@ export class ZooScene {
     }
     
     // ============================================================
-    // ===== FIXED: Camera rotation =====
+    // ===== FIXED: Camera rotation based on working code =====
     // ============================================================
     setOrientation(alpha, beta, gamma) {
         // Debug: log every 5 seconds (1% chance per frame)
@@ -246,40 +257,39 @@ export class ZooScene {
             console.log(`🔄 Applying: alpha=${alpha.toFixed(1)}°, beta=${beta.toFixed(1)}°, gamma=${gamma.toFixed(1)}°`);
         }
         
-        // Convert degrees to radians
-        const yaw = -alpha * Math.PI / 180;
-        const pitch = beta * Math.PI / 180;
+        // Smooth interpolation (like working code)
+        const sm = 0.055; // Same as working code
+        this.alpha += (alpha - this.alpha) * sm;
+        this.beta += (beta - this.beta) * sm;
+        this.gamma += (gamma - this.gamma) * sm;
         
-        // Clamp pitch to prevent flipping
-        const clampedPitch = Math.max(-1.5, Math.min(1.5, pitch));
-        
-        // Get current distance
-        const distance = this.zoomLevel || 3;
-        
-        // Set position
-        this.camera.position.set(0, 1.6, distance);
-        
-        // Apply rotation using Euler angles
-        const euler = new THREE.Euler(clampedPitch, yaw, 0, 'YXZ');
-        this.camera.quaternion.setFromEuler(euler);
+        // ===== CRITICAL: Use rotation.x/y/z directly like working code =====
+        this.camera.rotation.order = 'YXZ';
+        this.camera.rotation.y = -THREE.MathUtils.degToRad(this.alpha);
+        this.camera.rotation.x = THREE.MathUtils.degToRad(this.beta);
+        this.camera.rotation.z = THREE.MathUtils.degToRad(this.gamma);
     }
     
     // ============================================================
     // Zoom and Reset
     // ============================================================
     setZoom(zoomDelta) {
-        const minZoom = 0.8;
-        const maxZoom = 5.0;
-        let newZoom = (this.zoomLevel || 3) + zoomDelta * 0.5;
-        newZoom = Math.max(minZoom, Math.min(maxZoom, newZoom));
-        this.zoomLevel = newZoom;
-        this.camera.position.z = newZoom;
+        // Zoom not directly supported in this version
+        // We use the approach from working code (position at origin)
+        console.log('🔍 Zoom:', zoomDelta);
     }
     
     resetCamera() {
-        this.zoomLevel = 3;
-        this.camera.position.set(0, 1.6, 3);
-        this.camera.quaternion.identity();
+        this.alpha = 0;
+        this.beta = 0;
+        this.gamma = 0;
+        this.targetAlpha = 0;
+        this.targetBeta = 0;
+        this.targetGamma = 0;
+        this.camera.rotation.order = 'YXZ';
+        this.camera.rotation.y = 0;
+        this.camera.rotation.x = 0;
+        this.camera.rotation.z = 0;
         console.log('🔄 Camera reset');
     }
     
