@@ -1,5 +1,5 @@
 /* ============================================================
-   SENSORS - Motion Handling (SIMPLIFIED)
+   SENSORS - Magic Window Controls (FINAL)
    ============================================================ */
 
 export class MotionController {
@@ -12,9 +12,15 @@ export class MotionController {
         this.motionReceived = false;
         this.fallbackTimeout = null;
         
-        console.log('📱 MotionController created');
-        console.log('🖥️ Is desktop:', this.isDesktop);
-        console.log('🔍 User Agent:', navigator.userAgent);
+        // Calibration (Fixes random starting direction)
+        this.calibrated = false;
+        this.calAlpha = 0;
+        
+        // Zoom (Available in ALL modes, not just fallback)
+        this._zoomCallback = null;
+        this.setZoomCallback = (callback) => {
+            this._zoomCallback = callback;
+        };
         
         if (this.isDesktop) {
             this.fallbackToMouse();
@@ -31,71 +37,46 @@ export class MotionController {
     
     setup() {
         if (typeof DeviceOrientationEvent === 'undefined') {
-            console.warn('❌ DeviceOrientationEvent not supported');
             this.fallbackToMouse();
             return;
         }
         
-        console.log('📱 DeviceOrientationEvent available');
-        
-        // Check if iOS (needs permission)
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            console.log('📱 iOS detected - will request permission');
-            // iOS: wait for requestIOSPermission() call
-            this.showStatus('📱 Tap "Enter" to request motion permission');
+            this.showStatus('Tap to request motion permission');
         } else {
-            // Android: start immediately
-            console.log('📱 Android detected - starting directly');
             this.startListening();
             
-            // Fallback: if no motion after 3s, use mouse
+            // Increased to 5000ms for slow Android devices
             this.fallbackTimeout = setTimeout(() => {
                 if (!this.motionReceived && !this.useFallback) {
-                    console.warn('⚠️ No motion after 3s - falling back');
                     this.fallbackToMouse();
                 }
-            }, 3000);
+            }, 5000);
         }
     }
     
     requestIOSPermission() {
-        console.log('📱 Requesting iOS motion permission...');
-        this.permissionRequested = true;
-        
         DeviceOrientationEvent.requestPermission()
             .then(response => {
-                console.log('📱 Permission response:', response);
                 if (response === 'granted') {
-                    console.log('✅ Permission granted!');
                     this.startListening();
                     if (this.onPermission) this.onPermission(true);
                 } else {
-                    console.warn('❌ Permission denied');
                     this.fallbackToMouse();
                     if (this.onPermission) this.onPermission(false);
                 }
             })
-            .catch(error => {
-                console.error('❌ Permission error:', error);
+            .catch(() => {
                 this.fallbackToMouse();
                 if (this.onPermission) this.onPermission(false);
             });
     }
     
     startListening() {
-        console.log('📱 Starting orientation listener...');
-        
         this.boundHandleOrientation = this.handleOrientation.bind(this);
         window.addEventListener('deviceorientation', this.boundHandleOrientation);
-        
         this.isActive = true;
-        this.showStatus('📱 Move your phone to look around');
-        console.log('✅ Motion tracking active');
-        
-        // Send an initial update (so camera doesn't stay at 0)
-        setTimeout(() => {
-            this.onUpdate({ alpha: 0, beta: 0, gamma: 0 });
-        }, 100);
+        this.showStatus('Move phone to look around');
     }
     
     handleOrientation(event) {
@@ -103,72 +84,80 @@ export class MotionController {
         
         if (!this.motionReceived) {
             this.motionReceived = true;
-            console.log('📱 First motion event received!');
             if (this.fallbackTimeout) {
                 clearTimeout(this.fallbackTimeout);
                 this.fallbackTimeout = null;
             }
         }
         
-        // Get values
-        const alpha = event.alpha !== null ? event.alpha : 0;
+        const rawAlpha = event.alpha !== null ? event.alpha : 0;
         const beta = event.beta !== null ? event.beta : 0;
         const gamma = event.gamma !== null ? event.gamma : 0;
         
-        // Log every few seconds
-        if (Math.random() < 0.01) {
-            console.log(`🔄 Raw: alpha=${alpha.toFixed(1)}, beta=${beta.toFixed(1)}, gamma=${gamma.toFixed(1)}`);
+        // Calibrate on first real reading
+        if (!this.calibrated && rawAlpha !== 0) {
+            this.calAlpha = rawAlpha;
+            this.calibrated = true;
         }
         
-        // Update orientation
+        // Apply calibration offset with wrapping
+        let alpha = rawAlpha - this.calAlpha;
+        if (alpha < -180) alpha += 360;
+        if (alpha > 180) alpha -= 360;
+        
         this.orientation = { alpha, beta, gamma };
         
-        // Send to scene
+        // false = not instant (scene will apply smoothing)
         if (this.onUpdate) {
-            this.onUpdate({ alpha, beta, gamma });
+            this.onUpdate({ alpha, beta, gamma }, false);
         }
     }
     
+    recalibrate() {
+        // Make current heading the new "forward"
+        this.calAlpha += this.orientation.alpha;
+        if (this.calAlpha > 360) this.calAlpha -= 360;
+        if (this.calAlpha < 0) this.calAlpha += 360;
+        this.onUpdate({ alpha: 0, beta: this.orientation.beta, gamma: this.orientation.gamma }, false);
+    }
+    
     fallbackToMouse() {
-        console.log('🖥️ Using mouse fallback');
         this.useFallback = true;
         this.isActive = true;
-        this.showStatus('🖱️ Drag to look around · Scroll to zoom');
+        this.showStatus('Drag to look around');
         
         let isDragging = false;
         let lastX = 0, lastY = 0;
         let rotX = 0, rotY = 0;
         let zoomLevel = 0;
         
-        // Mouse drag
-        const onMouseDown = (e) => {
+        const onDown = (e) => {
             if (e.target.closest('button')) return;
             isDragging = true;
-            lastX = e.clientX;
-            lastY = e.clientY;
+            const p = e.touches ? e.touches[0] : e;
+            lastX = p.clientX; lastY = p.clientY;
             document.body.style.cursor = 'grabbing';
         };
         
-        const onMouseMove = (e) => {
+        const onMove = (e) => {
             if (!isDragging) return;
-            const dx = e.clientX - lastX;
-            const dy = e.clientY - lastY;
-            lastX = e.clientX;
-            lastY = e.clientY;
+            const p = e.touches ? e.touches[0] : e;
             
-            rotX += dx * 0.5;
-            rotY += dy * 0.5;
-            rotY = Math.max(-89, Math.min(89, rotY));
+            rotX -= (p.clientX - lastX) * 0.4; // Inverted for natural drag
+            rotY -= (p.clientY - lastY) * 0.4;
+            rotY = Math.max(-85, Math.min(85, rotY)); // Prevent flipping
             
-            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 });
+            lastX = p.clientX; lastY = p.clientY;
+            
+            // true = instant (skip scene smoothing, prevents desktop lag)
+            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
         };
         
-        const onMouseUp = () => {
+        const onUp = () => {
             isDragging = false;
             document.body.style.cursor = 'default';
         };
         
-        // Scroll
         const onWheel = (e) => {
             e.preventDefault();
             zoomLevel += e.deltaY * 0.01;
@@ -176,82 +165,46 @@ export class MotionController {
             if (this._zoomCallback) this._zoomCallback(zoomLevel);
         };
         
-        // Touch drag
-        let touchX = 0, touchY = 0;
-        let isTouching = false;
-        
-        const onTouchStart = (e) => {
-            const touch = e.touches[0];
-            if (touch && !e.target.closest('button')) {
-                isTouching = true;
-                touchX = touch.clientX;
-                touchY = touch.clientY;
-            }
-        };
-        
-        const onTouchMove = (e) => {
-            if (!isTouching) return;
-            const touch = e.touches[0];
-            if (!touch) return;
-            
-            const dx = touch.clientX - touchX;
-            const dy = touch.clientY - touchY;
-            touchX = touch.clientX;
-            touchY = touch.clientY;
-            
-            rotX += dx * 0.3;
-            rotY += dy * 0.3;
-            rotY = Math.max(-89, Math.min(89, rotY));
-            
-            this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 });
-        };
-        
-        const onTouchEnd = () => { isTouching = false; };
-        
-        // Keyboard
         const onKeyDown = (e) => {
             switch(e.key) {
-                case 'ArrowLeft': rotX -= 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
-                case 'ArrowRight': rotX += 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
-                case 'ArrowUp': rotY -= 5; rotY = Math.max(-89, Math.min(89, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
-                case 'ArrowDown': rotY += 5; rotY = Math.max(-89, Math.min(89, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }); e.preventDefault(); break;
-                case 'r': case 'R': rotX = 0; rotY = 0; zoomLevel = 0; this.onUpdate({ alpha: 0, beta: 0, gamma: 0 }); if (this._zoomCallback) this._zoomCallback(0); e.preventDefault(); break;
+                case 'ArrowLeft': rotX += 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true); e.preventDefault(); break;
+                case 'ArrowRight': rotX -= 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true); e.preventDefault(); break;
+                case 'ArrowUp': rotY += 3; rotY = Math.max(-85, Math.min(85, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true); e.preventDefault(); break;
+                case 'ArrowDown': rotY -= 3; rotY = Math.max(-85, Math.min(85, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true); e.preventDefault(); break;
+                case 'r': case 'R': 
+                    rotX = 0; rotY = 0; zoomLevel = 0; 
+                    this.onUpdate({ alpha: 0, beta: 0, gamma: 0 }, true); 
+                    if (this._zoomCallback) this._zoomCallback(0); 
+                    e.preventDefault(); 
+                    break;
             }
         };
         
-        document.addEventListener('mousedown', onMouseDown);
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
         document.addEventListener('wheel', onWheel, { passive: false });
-        document.addEventListener('touchstart', onTouchStart);
-        document.addEventListener('touchmove', onTouchMove);
-        document.addEventListener('touchend', onTouchEnd);
+        document.addEventListener('touchstart', onDown, { passive: true });
+        document.addEventListener('touchmove', onMove, { passive: false });
+        document.addEventListener('touchend', onUp);
         document.addEventListener('keydown', onKeyDown);
         
         this._fallbackCleanup = () => {
-            document.removeEventListener('mousedown', onMouseDown);
-            document.removeEventListener('mousemove', onMouseMove);
-            document.removeEventListener('mouseup', onMouseUp);
+            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
             document.removeEventListener('wheel', onWheel);
-            document.removeEventListener('touchstart', onTouchStart);
-            document.removeEventListener('touchmove', onTouchMove);
-            document.removeEventListener('touchend', onTouchEnd);
+            document.removeEventListener('touchstart', onDown);
+            document.removeEventListener('touchmove', onMove);
+            document.removeEventListener('touchend', onUp);
             document.removeEventListener('keydown', onKeyDown);
             document.body.style.cursor = 'default';
         };
-        
-        this._zoomCallback = null;
-        this.setZoomCallback = (callback) => {
-            this._zoomCallback = callback;
-        };
-        
-        console.log('✅ Desktop controls active!');
     }
     
     showStatus(message) {
         const statusEl = document.getElementById('status-text');
         if (statusEl) statusEl.textContent = message;
-        console.log('📱 Status:', message);
     }
     
     dispose() {
@@ -267,6 +220,5 @@ export class MotionController {
             clearTimeout(this.fallbackTimeout);
             this.fallbackTimeout = null;
         }
-        console.log('📱 MotionController disposed');
     }
 }
