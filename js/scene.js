@@ -1,5 +1,5 @@
 /* ============================================================
-   SCENE - 3D Zoo Scene (FIXED - Based on Working Magic Window)
+   SCENE - 3D Zoo Scene (COMPLETELY FIXED)
    ============================================================ */
 
 import * as THREE from 'three';
@@ -11,7 +11,9 @@ export class ZooScene {
         this.camera = null;
         this.renderer = null;
         this.animals = [];
-        this.objects = [];
+        this.clouds = [];
+        this.trees = [];
+        this.rocks = [];
         this.isReady = false;
         this.zoomLevel = 3;
         
@@ -19,9 +21,6 @@ export class ZooScene {
         this.alpha = 0;
         this.beta = 0;
         this.gamma = 0;
-        this.targetAlpha = 0;
-        this.targetBeta = 0;
-        this.targetGamma = 0;
         
         this.setupScene();
     }
@@ -38,20 +37,26 @@ export class ZooScene {
             // Scene
             this.scene = new THREE.Scene();
             this.scene.background = new THREE.Color(0x87CEEB);
-            this.scene.fog = new THREE.Fog(0x87CEEB, 15, 25);
+            
+            // ===== FIXED: Fog pushed much further back =====
+            // Option A: Push fog back so the whole zoo is visible
+            this.scene.fog = new THREE.Fog(0x87CEEB, 30, 60);
+            
+            // Option B: Remove fog entirely for crisp view
+            // (uncomment the line below and comment the one above)
+            // this.scene.fog = null;
             
             // Camera - set to origin like working code
             this.camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
             this.camera.position.set(0, 0, 0);
             
-            // ===== CRITICAL: Set rotation order to YXZ =====
+            // ===== CRITICAL: Set rotation order to YXZ (once is enough) =====
             this.camera.rotation.order = 'YXZ';
             
-            // Renderer
+            // Renderer - removed preserveDrawingBuffer for performance
             this.renderer = new THREE.WebGLRenderer({
                 antialias: true,
-                alpha: false,
-                preserveDrawingBuffer: true
+                alpha: false
             });
             this.renderer.setSize(window.innerWidth, window.innerHeight);
             this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -146,7 +151,7 @@ export class ZooScene {
         const sky = new THREE.Mesh(skyGeo, skyMat);
         this.scene.add(sky);
         
-        // Simple clouds
+        // ===== FIXED: Clouds stored separately =====
         for (let i = 0; i < 12; i++) {
             const cloud = new THREE.Mesh(
                 new THREE.SphereGeometry(0.3 + Math.random() * 0.5, 6, 6),
@@ -164,7 +169,7 @@ export class ZooScene {
             cloud.scale.set(1, 0.3 + Math.random() * 0.3, 1);
             cloud.userData.speed = 0.01 + Math.random() * 0.02;
             this.scene.add(cloud);
-            this.objects.push(cloud);
+            this.clouds.push(cloud);
         }
     }
     
@@ -190,7 +195,7 @@ export class ZooScene {
         grid.material.opacity = 0.2;
         this.scene.add(grid);
         
-        // Trees
+        // ===== FIXED: Trees stored separately =====
         for (let i = 0; i < 20; i++) {
             const x = (Math.random() - 0.5) * 16;
             const z = (Math.random() - 0.5) * 16;
@@ -226,7 +231,7 @@ export class ZooScene {
         group.rotation.y = Math.random() * Math.PI * 2;
         
         this.scene.add(group);
-        this.objects.push(group);
+        this.trees.push(group);
     }
     
     addAnimal(animal) {
@@ -239,57 +244,66 @@ export class ZooScene {
         const time = performance.now() / 1000;
         this.animals.forEach(animal => animal.update(delta, time));
         
-        // Animate clouds
-        this.objects.forEach(obj => {
-            if (obj.userData.speed) {
-                obj.position.x += obj.userData.speed;
-                if (obj.position.x > 10) obj.position.x = -10;
-            }
+        // ===== FIXED: Only animate clouds (not trees) =====
+        this.clouds.forEach(cloud => {
+            cloud.position.x += cloud.userData.speed;
+            if (cloud.position.x > 10) cloud.position.x = -10;
         });
     }
     
     // ============================================================
-    // ===== FIXED: Camera rotation based on working code =====
+    // ===== COMPLETELY FIXED: Camera rotation with alpha wrapping =====
     // ============================================================
-    setOrientation(alpha, beta, gamma) {
+    setOrientation(alpha, beta, gamma, delta = 1/60) {
         // Debug: log every 5 seconds (1% chance per frame)
         if (Math.random() < 0.01) {
             console.log(`🔄 Applying: alpha=${alpha.toFixed(1)}°, beta=${beta.toFixed(1)}°, gamma=${gamma.toFixed(1)}°`);
         }
         
-        // Smooth interpolation (like working code)
-        const sm = 0.055; // Same as working code
-        this.alpha += (alpha - this.alpha) * sm;
+        // ===== FIXED: Frame-rate independent smoothing =====
+        // At 60fps: factor ≈ 0.055. At 120fps: factor ≈ 0.028. Same perceived speed.
+        const sm = 1 - Math.pow(0.945, delta * 60);
+        
+        // ===== FIXED: Shortest-path yaw (handles 0°/360° wrap) =====
+        let dAlpha = alpha - this.alpha;
+        if (dAlpha > 180) dAlpha -= 360;
+        if (dAlpha < -180) dAlpha += 360;
+        this.alpha += dAlpha * sm;
+        
+        // Beta and gamma don't wrap (stay in ~-180 to 180)
         this.beta += (beta - this.beta) * sm;
         this.gamma += (gamma - this.gamma) * sm;
         
-        // ===== CRITICAL: Use rotation.x/y/z directly like working code =====
-        this.camera.rotation.order = 'YXZ';
+        // Apply to camera (YXZ order already set in constructor)
         this.camera.rotation.y = -THREE.MathUtils.degToRad(this.alpha);
         this.camera.rotation.x = THREE.MathUtils.degToRad(this.beta);
         this.camera.rotation.z = THREE.MathUtils.degToRad(this.gamma);
     }
     
     // ============================================================
-    // Zoom and Reset
+    // ===== FIXED: Zoom works via FOV =====
     // ============================================================
     setZoom(zoomDelta) {
-        // Zoom not directly supported in this version
-        // We use the approach from working code (position at origin)
-        console.log('🔍 Zoom:', zoomDelta);
+        // Zoom in = narrower FOV, zoom out = wider FOV
+        this.zoomLevel = Math.max(1, Math.min(5, this.zoomLevel + zoomDelta));
+        // Map zoom 1-5 to FOV 90-40
+        this.camera.fov = 90 - (this.zoomLevel - 1) * 12.5;
+        this.camera.updateProjectionMatrix();
     }
     
+    // ============================================================
+    // Reset Camera
+    // ============================================================
     resetCamera() {
         this.alpha = 0;
         this.beta = 0;
         this.gamma = 0;
-        this.targetAlpha = 0;
-        this.targetBeta = 0;
-        this.targetGamma = 0;
-        this.camera.rotation.order = 'YXZ';
+        this.zoomLevel = 3;
         this.camera.rotation.y = 0;
         this.camera.rotation.x = 0;
         this.camera.rotation.z = 0;
+        this.camera.fov = 70;
+        this.camera.updateProjectionMatrix();
         console.log('🔄 Camera reset');
     }
     
@@ -321,7 +335,9 @@ export class ZooScene {
             }
         }
         this.animals = [];
-        this.objects = [];
+        this.clouds = [];
+        this.trees = [];
+        this.rocks = [];
         this.isReady = false;
         console.log('✅ Scene disposed');
     }
