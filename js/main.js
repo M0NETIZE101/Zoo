@@ -1,341 +1,301 @@
 /* ============================================================
-   SCENE - First-Person Magic Window Zoo
+   MAIN - Application Controller
    ============================================================ */
 
-import * as THREE from 'three';
+import { ZooScene } from './scene.js';
+import { Animal } from './animal.js';
+import { MotionController } from './sensors.js';
 
-export class ZooScene {
-    constructor(container) {
-        this.container = container;
-        this.scene = null;
-        this.camera = null;
-        this.renderer = null;
-        this.animals = [];
-        this.isReady = false;
-        
-        // Magic Window Smoothing State
-        this.alpha = 0;
-        this.beta = 0;
-        this.gamma = 0;
-        
-        // ===== DISCOVERY SYSTEM =====
-        this.raycaster = new THREE.Raycaster();
-        this.raycaster.far = 30;
-        this.screenCenter = new THREE.Vector2(0, 0);
-        this.currentlyDiscovered = null;
-        
-        this.setupScene();
-    }
-    
-    setupScene() {
-        if (!this.container) {
-            console.error('❌ Container not found!');
-            return;
-        }
-        
-        try {
-            // Scene
-            this.scene = new THREE.Scene();
-            this.scene.background = new THREE.Color(0x7EC8E3);
-            this.scene.fog = new THREE.FogExp2(0x7EC8E3, 0.025);
-            
-            // Camera
-            this.camera = new THREE.PerspectiveCamera(
-                70,
-                window.innerWidth / window.innerHeight,
-                0.1,
-                100
-            );
-            this.camera.position.set(0, 1.6, 0);
-            this.camera.rotation.order = 'YXZ';
-            
-            // Renderer
-            this.renderer = new THREE.WebGLRenderer({ antialias: true });
-            this.renderer.setSize(window.innerWidth, window.innerHeight);
-            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-            this.renderer.shadowMap.enabled = true;
-            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-            this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            this.renderer.toneMappingExposure = 1.1;
-            this.container.appendChild(this.renderer.domElement);
-            
-            // Build the world
-            this.setupLights();
-            this.setupEnvironment();
-            
-            window.addEventListener('resize', () => this.onResize());
-            
-            this.isReady = true;
-            console.log('✅ First-Person Magic Window Scene Ready');
-            
-        } catch (error) {
-            console.error('❌ Scene setup error:', error);
-        }
-    }
-    
-    onResize() {
-        if (!this.camera || !this.renderer) return;
-        this.camera.aspect = window.innerWidth / window.innerHeight;
-        this.camera.updateProjectionMatrix();
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-    
-    // ============================================================
-    // LIGHTING
-    // ============================================================
-    setupLights() {
-        const ambient = new THREE.AmbientLight(0x8899aa, 0.7);
-        this.scene.add(ambient);
-        
-        const sun = new THREE.DirectionalLight(0xffeedd, 1.8);
-        sun.position.set(15, 20, 10);
-        sun.castShadow = true;
-        sun.shadow.mapSize.width = 2048;
-        sun.shadow.mapSize.height = 2048;
-        sun.shadow.camera.near = 0.5;
-        sun.shadow.camera.far = 60;
-        sun.shadow.camera.left = -25;
-        sun.shadow.camera.right = 25;
-        sun.shadow.camera.top = 25;
-        sun.shadow.camera.bottom = -25;
-        sun.shadow.bias = -0.001;
-        this.scene.add(sun);
-        
-        const hemi = new THREE.HemisphereLight(0x87CEEB, 0x556B2F, 0.4);
-        this.scene.add(hemi);
-    }
-    
-    // ============================================================
-    // ENVIRONMENT
-    // ============================================================
-    setupEnvironment() {
-        // Ground
-        const groundGeo = new THREE.CircleGeometry(50, 32);
-        const groundMat = new THREE.MeshStandardMaterial({ 
-            color: 0x4a8c38,
-            roughness: 0.95 
-        });
-        const ground = new THREE.Mesh(groundGeo, groundMat);
-        ground.rotation.x = -Math.PI / 2;
-        ground.receiveShadow = true;
-        this.scene.add(ground);
-        
-        // Viewing platform
-        const platformGeo = new THREE.CylinderGeometry(1.5, 1.8, 0.15, 16);
-        const platformMat = new THREE.MeshStandardMaterial({ color: 0x9e8e7e, roughness: 0.9 });
-        const platform = new THREE.Mesh(platformGeo, platformMat);
-        platform.position.y = 0.075;
-        platform.receiveShadow = true;
-        this.scene.add(platform);
+// ============================================================
+// STATE
+// ============================================================
+let zooScene = null;
+let motion = null;
+let animals = [];
+let discoveredCount = 0;
+let animationFrameId = null;
+let lastTime = 0;
 
-        // Enclosures
-        const enclosureRadius = 10;
-        const zones = [
-            { angle: 0,   color: 0xc2b280, name: 'Savanna'  },
-            { angle: 90,  color: 0x2d5a27, name: 'Forest'   },
-            { angle: 180, color: 0xdce9f0, name: 'Arctic'   },
-            { angle: 270, color: 0x4a8db7, name: 'Aquatic'  },
-        ];
-        
-        zones.forEach(zone => {
-            const rad = THREE.MathUtils.degToRad(zone.angle);
-            const x = Math.sin(rad) * enclosureRadius;
-            const z = -Math.cos(rad) * enclosureRadius;
-            
-            // Ground patch
-            const patchGeo = new THREE.CircleGeometry(4, 24);
-            const patchMat = new THREE.MeshStandardMaterial({ 
-                color: zone.color, 
-                roughness: 0.85,
-                metalness: zone.name === 'Aquatic' ? 0.2 : 0.0
-            });
-            const patch = new THREE.Mesh(patchGeo, patchMat);
-            patch.rotation.x = -Math.PI / 2;
-            patch.position.set(x, 0.02, z);
-            patch.receiveShadow = true;
-            this.scene.add(patch);
-            
-            // Fence
-            const fenceGeo = new THREE.TorusGeometry(4, 0.1, 8, 32);
-            const fenceMat = new THREE.MeshStandardMaterial({ color: 0x5D4037, roughness: 0.8 });
-            const fence = new THREE.Mesh(fenceGeo, fenceMat);
-            fence.rotation.x = -Math.PI / 2;
-            fence.position.set(x, 0.4, z);
-            fence.castShadow = true;
-            this.scene.add(fence);
-            
-            // Border trees
-            for (let i = 0; i < 5; i++) {
-                const treeAngle = rad + (Math.PI / 2) + (i - 2) * 0.4;
-                const treeDist = 5.5 + Math.random() * 2;
-                this.createTree(
-                    x + Math.sin(treeAngle) * treeDist,
-                    z - Math.cos(treeAngle) * treeDist
-                );
-            }
-        });
+// Discovery state
+let discoveryTarget = null;
+let discoveryTimer = 0;
+const DISCOVERY_TIME_REQUIRED = 3; // Seconds needed to discover an animal
 
-        // Fill trees
-        const fillTreeAngles = [45, 135, 225, 315];
-        fillTreeAngles.forEach(angle => {
-            const rad = THREE.MathUtils.degToRad(angle);
-            const dist = 5 + Math.random() * 2;
-            this.createTree(Math.sin(rad) * dist, -Math.cos(rad) * dist);
-        });
-    }
+// ============================================================
+// INITIALIZATION
+// ============================================================
+function init() {
+    console.log('🚀 Initializing Magic Window Zoo...');
     
-    // ============================================================
-    // TREES
-    // ============================================================
-    createTree(x, z) {
-        const group = new THREE.Group();
-        const height = 3 + Math.random() * 3;
-        
-        const trunk = new THREE.Mesh(
-            new THREE.CylinderGeometry(0.15, 0.25, height, 6),
-            new THREE.MeshStandardMaterial({ color: 0x6D4C41 })
-        );
-        trunk.position.y = height / 2;
-        trunk.castShadow = true;
-        group.add(trunk);
-        
-        const canopyRadius = 1.2 + Math.random() * 0.8;
-        const canopy = new THREE.Mesh(
-            new THREE.SphereGeometry(canopyRadius, 8, 8),
-            new THREE.MeshStandardMaterial({
-                color: new THREE.Color().setHSL(0.28 + Math.random() * 0.06, 0.6, 0.25 + Math.random() * 0.15)
-            })
-        );
-        canopy.position.y = height + canopyRadius * 0.6;
-        canopy.castShadow = true;
-        group.add(canopy);
-        
-        group.position.set(x, 0, z);
-        this.scene.add(group);
-    }
+    // 1. Setup 3D Scene
+    zooScene = new ZooScene(document.getElementById('game-container'));
     
-    // ============================================================
-    // ANIMALS
-    // ============================================================
-    addAnimal(animal) {
-        animal.group.traverse((child) => {
-            if (child.isMesh) {
-                child.userData.animalRef = animal;
-            }
-        });
-        
-        this.animals.push(animal);
-        this.scene.add(animal.group);
-        return animal;
-    }
+    // 2. Spawn Animals (Positioned to match the circular zones in scene.js)
+    // Zone radius is 10m. Angles: 0=Front, 90=Right, 180=Back, 270=Left
+    animals = [
+        new Animal({
+            name: 'Lion',
+            fact: 'A lion\'s roar can be heard from 5 miles away.',
+            color: 0xD4A017,
+            size: 0.8,
+            position: { x: 0, z: -10 },   // Front (Savanna)
+            wanderRadius: 1.5
+        }),
+        new Animal({
+            name: 'Deer',
+            fact: 'Deer can jump up to 10 feet high.',
+            color: 0x8B6914,
+            size: 0.6,
+            position: { x: 10, z: 0 },    // Right (Forest)
+            wanderRadius: 1.5
+        }),
+        new Animal({
+            name: 'Polar Bear',
+            fact: 'Polar bears have black skin under their white fur.',
+            color: 0xF0F0F0,
+            size: 1.0,
+            position: { x: 0, z: 10 },    // Back (Arctic)
+            wanderRadius: 1.5
+        }),
+        new Animal({
+            name: 'Penguin',
+            fact: 'Penguins can drink salt water because their glands filter out the salt.',
+            color: 0x222222,
+            size: 0.4,
+            position: { x: -10, z: 0 },   // Left (Aquatic)
+            wanderRadius: 1.5
+        })
+    ];
     
-    // ============================================================
-    // ===== FIXED: DISCOVERY SYSTEM =====
-    // ============================================================
-    checkDiscovery() {
-        // Shoot a ray from the exact center of the screen
-        this.raycaster.setFromCamera(this.screenCenter, this.camera);
-        
-        // Check intersections with all objects in the scene
-        const intersects = this.raycaster.intersectObjects(this.scene.children, true);
-        
-        if (intersects.length > 0) {
-            // Walk up the parent chain to find the animalRef we tagged in addAnimal()
-            let obj = intersects[0].object;
-            while (obj) {
-                if (obj.userData && obj.userData.animalRef) {
-                    const discoveredAnimal = obj.userData.animalRef;
-                    
-                    // Only trigger if it's a NEW animal being looked at
-                    if (this.currentlyDiscovered !== discoveredAnimal) {
-                        this.currentlyDiscovered = discoveredAnimal;
-                        return discoveredAnimal;
-                    }
-                    return null; // Still looking at the same animal
-                }
-                obj = obj.parent;
+    // Add animals to scene and tag them for raycasting
+    animals.forEach(animal => zooScene.addAnimal(animal));
+    
+    // 3. Update UI Total Count
+    document.getElementById('total-count').textContent = `/ ${animals.length}`;
+    
+    // 4. Hide loading, show start screen
+    setTimeout(() => {
+        document.getElementById('loading').classList.add('hidden');
+    }, 1000);
+    
+    // 5. Bind UI Events
+    bindEvents();
+}
+
+// ============================================================
+// START EXPERIENCE (Triggered by Button Click)
+// ============================================================
+function startExperience() {
+    const statusText = document.getElementById('status-text');
+    statusText.textContent = 'Starting...';
+    
+    // Initialize Motion Controller (Auto-detects Desktop vs Mobile)
+    motion = new MotionController({
+        onUpdate: (data, instant) => {
+            zooScene.setOrientation(data.alpha, data.beta, data.gamma, getDelta(), instant);
+        },
+        onPermission: (granted) => {
+            if (!granted) {
+                statusText.textContent = 'Motion denied. Use touch to drag.';
             }
         }
-        
-        // Looking at empty space
-        if (this.currentlyDiscovered) {
-            this.currentlyDiscovered = null;
-            return 'cleared';
-        }
-        
-        return null;
+    });
+    
+    // Set dynamic guidance text based on what activated
+    if (motion.isDesktop) {
+        document.getElementById('guidance-icon').textContent = '🖱️';
+        document.getElementById('guidance-text').textContent = 'Drag to look around';
+    } else {
+        document.getElementById('guidance-icon').textContent = '📱';
+        document.getElementById('guidance-text').textContent = 'Move phone to look around';
     }
     
-    // ============================================================
-    // UPDATE
-    // ============================================================
-    update(delta) {
-        const time = performance.now() / 1000;
-        this.animals.forEach(animal => animal.update(delta, time));
-    }
+    // Transition UI
+    document.getElementById('start-screen').classList.add('hidden');
+    document.getElementById('ui-overlay').style.display = 'block';
     
-    // ============================================================
-    // MAGIC WINDOW ORIENTATION
-    // ============================================================
-    setOrientation(alpha, beta, gamma, delta = 1/60, instant = false) {
-        if (instant) {
-            this.alpha = alpha;
-            this.beta = beta;
-            this.gamma = gamma;
-        } else {
-            const sm = 1 - Math.pow(0.945, delta * 60);
-            
-            let dAlpha = alpha - this.alpha;
-            if (dAlpha > 180) dAlpha -= 360;
-            if (dAlpha < -180) dAlpha += 360;
-            
-            this.alpha += dAlpha * sm;
-            this.beta  += (beta  - this.beta)  * sm;
-            this.gamma += (gamma - this.gamma) * sm;
-        }
+    // Show guidance temporarily
+    const guidance = document.getElementById('guidance');
+    guidance.classList.add('show');
+    setTimeout(() => guidance.classList.remove('show'), 4000);
+    
+    // Start render loop
+    lastTime = performance.now();
+    animate();
+}
 
-        this.camera.rotation.y = -THREE.MathUtils.degToRad(this.alpha);
-        this.camera.rotation.x =  THREE.MathUtils.degToRad(this.beta);
-        this.camera.rotation.z =  THREE.MathUtils.degToRad(this.gamma);
-    }
+// ============================================================
+// ANIMATION LOOP
+// ============================================================
+function animate() {
+    animationFrameId = requestAnimationFrame(animate);
     
-    // ============================================================
-    // ZOOM & RESET
-    // ============================================================
-    setZoom(zoomDelta) {
-        // Placeholder - implement FOV zoom if needed
-    }
+    const now = performance.now();
+    const delta = (now - lastTime) / 1000;
+    lastTime = now;
     
-    resetCamera() {
-        this.alpha = 0;
-        this.beta = 0;
-        this.gamma = 0;
-        this.camera.rotation.y = 0;
-        this.camera.rotation.x = 0;
-        this.camera.rotation.z = 0;
-        console.log('🔄 Camera reset');
-    }
+    // Update scene (animals wandering, etc.)
+    zooScene.update(delta);
     
-    // ============================================================
-    // RENDER & LIFECYCLE
-    // ============================================================
-    render() {
-        if (this.renderer && this.scene && this.camera) {
-            this.renderer.render(this.scene, this.camera);
+    // Check what we are looking at
+    handleDiscovery(delta);
+    
+    // Render
+    zooScene.render();
+}
+
+function getDelta() {
+    return (performance.now() - lastTime) / 1000 || 1/60;
+}
+
+// ============================================================
+// DISCOVERY LOGIC
+// ============================================================
+function handleDiscovery(delta) {
+    const crosshair = document.getElementById('crosshair');
+    const popup = document.getElementById('discovery-popup');
+    const nameEl = document.getElementById('discovery-name');
+    const factEl = document.getElementById('discovery-fact');
+    const timerEl = document.getElementById('discovery-timer');
+    const ringEl = document.querySelector('.progress-ring');
+    
+    const result = zooScene.checkDiscovery();
+    
+    if (result && result !== 'cleared') {
+        // Looking at a NEW animal
+        discoveryTarget = result;
+        discoveryTimer = 0;
+        
+        nameEl.textContent = discoveryTarget.name;
+        factEl.textContent = discoveryTarget.fact;
+        popup.style.display = 'block';
+        crosshair.classList.add('active');
+        
+        // Update top bar
+        document.getElementById('animal-name').textContent = `Looking at: ${discoveryTarget.name}`;
+        
+    } else if (result === 'cleared') {
+        // Looked away
+        resetDiscoveryUI();
+        
+    } else if (discoveryTarget) {
+        // Still looking at the SAME animal -> Increment timer
+        discoveryTimer += delta;
+        const progress = Math.min(discoveryTimer / DISCOVERY_TIME_REQUIRED, 1);
+        
+        // Update UI progress
+        timerEl.textContent = `${Math.ceil(DISCOVERY_TIME_REQUIRED - discoveryTimer)}s`;
+        // CSS Conic gradient for the ring
+        ringEl.style.background = `conic-gradient(#F5A623 ${progress * 360}%, rgba(255,255,255,0.1) 0%)`;
+        
+        // Check if discovered!
+        if (discoveryTimer >= DISCOVERY_TIME_REQUIRED && !discoveryTarget.isDiscovered) {
+            triggerDiscovery(discoveryTarget);
         }
-    }
-    
-    dispose() {
-        this.scene.traverse((child) => {
-            if (child.isMesh) {
-                child.geometry?.dispose();
-                if (Array.isArray(child.material)) child.material.forEach(m => m.dispose());
-                else child.material?.dispose();
-            }
-        });
-        this.renderer?.dispose();
-        this.renderer?.domElement?.parentNode?.removeChild(this.renderer.domElement);
-        this.animals = [];
-        this.isReady = false;
     }
 }
+
+function triggerDiscovery(animal) {
+    animal.discover(); // Trigger run animation in animal.js
+    discoveredCount++;
+    
+    document.getElementById('animal-count').textContent = discoveredCount;
+    document.getElementById('animal-name').textContent = `Discovered: ${animal.name}!`;
+    
+    showToast(`🎉 Discovered ${animal.name}! (${discoveredCount}/${animals.length})`);
+    
+    // Check win condition
+    if (discoveredCount === animals.length) {
+        setTimeout(() => showToast('🏆 You found all the animals!'), 2000);
+    }
+}
+
+function resetDiscoveryUI() {
+    discoveryTarget = null;
+    discoveryTimer = 0;
+    
+    document.getElementById('discovery-popup').style.display = 'none';
+    document.getElementById('crosshair').classList.remove('active');
+    document.querySelector('.progress-ring').style.background = `conic-gradient(#F5A623 0%, rgba(255,255,255,0.1) 0%)`;
+    document.getElementById('animal-name').textContent = 'Looking around...';
+}
+
+// ============================================================
+// UI EVENTS
+// ============================================================
+function bindEvents() {
+    // Start Button (Handles iOS permission request inside)
+    document.getElementById('start-btn').addEventListener('click', () => {
+        // If it's iOS, we must request permission inside a user gesture
+        if (motion === null && typeof DeviceOrientationEvent !== 'undefined' && 
+            typeof DeviceOrientationEvent.requestPermission === 'function') {
+            
+            // Create a temporary motion controller just to ask permission, 
+            // then start the real flow
+            DeviceOrientationEvent.requestPermission().then(response => {
+                if (response === 'granted') {
+                    startExperience();
+                } else {
+                    document.getElementById('status-text').textContent = 'Permission denied. Using drag.';
+                    startExperience(); // Will fallback to mouse/touch automatically
+                }
+            }).catch(() => startExperience());
+        } else {
+            startExperience();
+        }
+    });
+    
+    // Reset View
+    document.getElementById('reset-btn').addEventListener('click', () => {
+        zooScene.resetCamera();
+        if (motion) motion.recalibrate();
+        resetDiscoveryUI();
+        showToast('🔄 View Reset');
+    });
+    
+    // Photo Capture
+    document.getElementById('camera-btn').addEventListener('click', () => {
+        try {
+            const dataUrl = zooScene.captureFrame();
+            document.getElementById('captured-image').src = dataUrl;
+            document.getElementById('photo-preview').style.display = 'flex';
+        } catch (e) {
+            console.error('Photo capture failed', e);
+            showToast('❌ Could not take photo');
+        }
+    });
+    
+    // Photo Preview Close
+    document.getElementById('preview-close-btn').addEventListener('click', () => {
+        document.getElementById('photo-preview').style.display = 'none';
+    });
+    
+    // Photo Download
+    document.getElementById('preview-download-btn').addEventListener('click', () => {
+        const link = document.createElement('a');
+        link.download = 'magic-zoo-photo.png';
+        link.href = document.getElementById('captured-image').src;
+        link.click();
+        showToast('💾 Photo Saved!');
+    });
+}
+
+// ============================================================
+// TOAST NOTIFICATION
+// ============================================================
+let toastTimeout;
+function showToast(message) {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.classList.add('show');
+    
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+        toast.classList.remove('show');
+    }, 3000);
+}
+
+// ============================================================
+// BOOT
+// ============================================================
+window.addEventListener('DOMContentLoaded', init);
