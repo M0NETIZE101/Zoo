@@ -1,5 +1,5 @@
 /* ============================================================
-   SENSORS - Magic Window Controls (FINAL)
+   SENSORS - Magic Window Controls (GENERIC SENSOR FALLBACK)
    ============================================================ */
 
 export class MotionController {
@@ -43,16 +43,16 @@ export class MotionController {
         }
         
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            // iOS detected. DO NOT start listening yet. Wait for main.js to call requestIOSPermission()
+            // iOS detected. Wait for main.js to call requestIOSPermission()
             this.showStatus('Tap to request motion permission');
         } else {
-            // Android: start immediately
+            // Android: Try legacy listener first
             this.startListening();
             
             this.fallbackTimeout = setTimeout(() => {
                 if (!this.motionReceived && !this.useFallback) {
-                    console.warn('⚠️ No motion after 5s - falling back');
-                    this.fallbackToMouse();
+                    console.warn('⚠️ No motion after 5s. Trying Generic Sensor API...');
+                    this.tryGenericSensor();
                 }
             }, 5000);
         }
@@ -62,62 +62,146 @@ export class MotionController {
         console.log('📱 Requesting iOS motion permission...');
         DeviceOrientationEvent.requestPermission()
             .then(response => {
-                console.log('📱 iOS Permission response:', response);
                 if (response === 'granted') {
                     this.startListening();
                     if (this.onPermission) this.onPermission(true);
                 } else {
-                    console.warn('❌ Permission denied');
                     this.fallbackToMouse();
                     if (this.onPermission) this.onPermission(false);
                 }
             })
-            .catch(error => {
-                console.error('❌ Permission error:', error);
+            .catch(() => {
                 this.fallbackToMouse();
                 if (this.onPermission) this.onPermission(false);
             });
     }
     
     startListening() {
-        console.log('📱 Starting orientation listener...');
+        console.log('📱 Starting legacy orientation listener...');
         this.boundHandleOrientation = this.handleOrientation.bind(this);
         window.addEventListener('deviceorientation', this.boundHandleOrientation);
         this.isActive = true;
-        this.showStatus('Move phone to look around');
     }
     
     handleOrientation(event) {
         if (!event) return;
         
-        // CATCH ANDROID NULL BUG
+        // ==========================================
+        // THE ANDROID NULL BUG CATCHER
+        // ==========================================
         if (event.alpha === null && event.beta === null && event.gamma === null) {
             if (!this._nullWarningShown) {
-                console.warn('⚠️ Sensor event firing but values are NULL. Falling back to drag.');
+                console.warn('⚠️ Legacy API returning NULL. Switching to Generic Sensor API...');
                 this._nullWarningShown = true;
-                if (!this.useFallback) this.fallbackToMouse();
+                
+                // Stop listening to the broken legacy API
+                if (this.boundHandleOrientation) {
+                    window.removeEventListener('deviceorientation', this.boundHandleOrientation);
+                }
+                if (this.fallbackTimeout) {
+                    clearTimeout(this.fallbackTimeout);
+                    this.fallbackTimeout = null;
+                }
+                
+                // Trigger the new API
+                this.tryGenericSensor();
             }
             return;
         }
         
         if (!this.motionReceived) {
             this.motionReceived = true;
-            console.log('📱 First REAL motion event received!');
+            console.log('✅ Legacy motion event received!');
             if (this.fallbackTimeout) {
                 clearTimeout(this.fallbackTimeout);
                 this.fallbackTimeout = null;
             }
         }
         
-        const rawAlpha = event.alpha !== null ? event.alpha : 0;
-        const beta = event.beta !== null ? event.beta : 0;
-        const gamma = event.gamma !== null ? event.gamma : 0;
+        this.processOrientation(event.alpha || 0, event.beta || 0, event.gamma || 0);
+    }
+    
+    // ==========================================
+    // GENERIC SENSOR API (Modern Android Fix)
+    // ==========================================
+    tryGenericSensor() {
+        if (!('AbsoluteOrientationSensor' in window)) {
+            console.error('❌ Generic Sensor API not supported on this device.');
+            this.fallbackToMouse();
+            return;
+        }
         
+        try {
+            console.log('📡 Starting AbsoluteOrientationSensor...');
+            const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
+            
+            sensor.addEventListener('reading', () => {
+                if (!this.motionReceived) {
+                    this.motionReceived = true;
+                    console.log('✅ Generic Sensor streaming data!');
+                    this.showStatus('Move phone to look around');
+                }
+                
+                // The Generic Sensor API returns a Quaternion (x, y, z, w)
+                const q = sensor.quaternion;
+                const euler = this.quaternionToEuler(q.x, q.y, q.z, q.w);
+                
+                this.processOrientation(euler.alpha, euler.beta, euler.gamma);
+            });
+            
+            sensor.addEventListener('error', (event) => {
+                console.error('❌ Generic Sensor Error:', event.error.name, event.error.message);
+                this.fallbackToMouse();
+            });
+            
+            sensor.start();
+            this.isActive = true;
+            this.showStatus('Accessing motion sensors...');
+            
+        } catch (error) {
+            console.error('❌ Failed to init Generic Sensor:', error);
+            this.fallbackToMouse();
+        }
+    }
+    
+    // ==========================================
+    // MATH: Quaternion to Euler Angles
+    // ==========================================
+    quaternionToEuler(x, y, z, w) {
+        // Convert Quaternion to standard Euler angles (Yaw, Pitch, Roll)
+        let sinr_cosp = 2 * (w * x + y * z);
+        let cosr_cosp = 1 - 2 * (x * x + y * y);
+        let roll  = Math.atan2(sinr_cosp, cosr_cosp); // Gamma (tilt left/right)
+        
+        let sinp = 2 * (w * y - z * x);
+        // Clamp to handle edge cases
+        if (Math.abs(sinp) >= 1) {
+            sinp = Math.sign(sinp);
+        }
+        let pitch = Math.asin(sinp); // Beta (tilt forward/back)
+        
+        let siny_cosp = 2 * (w * z + x * y);
+        let cosy_cosp = 1 - 2 * (y * y + z * z);
+        let yaw = Math.atan2(siny_cosp, cosy_cosp); // Alpha (compass heading)
+        
+        // Convert Radians to Degrees
+        // Note: +180 on alpha aligns the generic sensor coordinate system with the legacy one
+        return {
+            alpha: (yaw * (180 / Math.PI)) + 180,
+            beta: pitch * (180 / Math.PI),
+            gamma: roll * (180 / Math.PI)
+        };
+    }
+    
+    // ==========================================
+    // SHARED ORIENTATION PROCESSING
+    // ==========================================
+    processOrientation(rawAlpha, beta, gamma) {
         // Calibrate on first real reading
         if (!this.calibrated && rawAlpha !== 0) {
             this.calAlpha = rawAlpha;
             this.calibrated = true;
-            console.log('🧭 Calibrated to:', this.calAlpha);
+            console.log('🧭 Calibrated to:', this.calAlpha.toFixed(1));
         }
         
         // Apply calibration offset with wrapping
@@ -140,6 +224,9 @@ export class MotionController {
         this.onUpdate({ alpha: 0, beta: this.orientation.beta, gamma: this.orientation.gamma }, false);
     }
     
+    // ==========================================
+    // MOUSE / TOUCH FALLBACK
+    // ==========================================
     fallbackToMouse() {
         if (this.useFallback) return; // Prevent double-binding
         this.useFallback = true;
@@ -162,13 +249,11 @@ export class MotionController {
             if (!isDragging) return;
             const p = e.touches ? e.touches[0] : e;
             
-            rotX -= (p.clientX - lastX) * 0.4; // Inverted for natural drag
+            rotX -= (p.clientX - lastX) * 0.4;
             rotY -= (p.clientY - lastY) * 0.4;
             rotY = Math.max(-85, Math.min(85, rotY));
             
             lastX = p.clientX; lastY = p.clientY;
-            
-            // true = instant (skip scene smoothing)
             this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
         };
         
