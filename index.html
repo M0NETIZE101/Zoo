@@ -16,9 +16,7 @@
         }
     </script>
 </head>
-    <!-- FIXED: Prevent pull-to-refresh and text selection on mobile -->
-    <body style="touch-action: none; -webkit-user-select: none; user-select: none; overflow: hidden;">
-
+<body>
     <!-- ===== LOADING ===== -->
     <div id="loading">
         <div class="spinner"></div>
@@ -33,7 +31,6 @@
             <h1>Magic Window Zoo</h1>
             <p>Look through your device into a living zoo</p>
             
-            <!-- FIXED: Removed manual device choice. JS handles this automatically. -->
             <button id="start-btn">Enter the Zoo</button>
             <p id="status-text" class="status">Tap to begin</p>
         </div>
@@ -44,16 +41,12 @@
 
     <!-- ===== UI OVERLAY ===== -->
     <div id="ui-overlay" style="display: none;">
-        
-        <!-- FIXED: Added crosshair for the discovery raycaster -->
         <div id="crosshair"></div>
 
-        <!-- Top: Collection -->
         <div id="top-bar">
             <div id="collection-count">
                 <span>🐾</span>
                 <span id="animal-count">0</span>
-                <!-- FIXED: Removed hardcoded / 6. JS will populate this -->
                 <span id="total-count">/ 0</span>
             </div>
             <div id="current-animal">
@@ -61,11 +54,10 @@
             </div>
         </div>
 
-        <!-- Center: Discovery Popup -->
         <div id="discovery-popup" style="display: none;">
             <div class="discovery-card">
-                <h2 id="discovery-name">Lion</h2>
-                <p id="discovery-fact">Looking at an animal reveals its fact!</p>
+                <h2 id="discovery-name">Animal</h2>
+                <p id="discovery-fact">Fact goes here</p>
                 <div class="discovery-progress">
                     <div class="progress-ring"></div>
                     <span id="discovery-timer">3s</span>
@@ -73,7 +65,6 @@
             </div>
         </div>
 
-        <!-- Bottom Controls -->
         <div id="bottom-controls">
             <button id="camera-btn" class="control-btn" title="Take Photo">
                 <span class="icon">📸</span>
@@ -83,23 +74,16 @@
                 <span class="icon">🔄</span>
                 <span class="label">Reset</span>
             </button>
-            <button id="share-btn" class="control-btn" title="Share">
-                <span class="icon">📤</span>
-                <span class="label">Share</span>
-            </button>
         </div>
 
-        <!-- FIXED: Dynamic guidance text (JS will set this based on desktop/mobile) -->
         <div id="guidance">
             <span id="guidance-icon" class="icon">📱</span>
             <span id="guidance-text" class="text">Move to look around</span>
         </div>
     </div>
 
-    <!-- ===== TOAST ===== -->
     <div id="toast"></div>
 
-    <!-- ===== PHOTO PREVIEW ===== -->
     <div id="photo-preview" style="display: none;">
         <div class="preview-card">
             <img id="captured-image" src="" alt="Zoo Photo" />
@@ -109,6 +93,10 @@
             </div>
         </div>
     </div>
+
+    <!-- ON-SCREEN CONSOLE FOR MOBILE DEBUGGING (DELETE BEFORE PUBLISHING) -->
+    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+    <script>eruda.init();</script>
 
     <script type="module" src="js/main.js"></script>
 </body>
