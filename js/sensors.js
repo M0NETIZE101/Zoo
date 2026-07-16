@@ -1,5 +1,5 @@
 /* ============================================================
-   SENSORS - Magic Window Controls (GENERIC SENSOR FALLBACK)
+   SENSORS - Magic Window Controls (TRUE ACCEL+MAG FUSION)
    ============================================================ */
 
 export class MotionController {
@@ -43,10 +43,8 @@ export class MotionController {
         }
         
         if (typeof DeviceOrientationEvent.requestPermission === 'function') {
-            // iOS detected. Wait for main.js to call requestIOSPermission()
             this.showStatus('Tap to request motion permission');
         } else {
-            // Android: Try legacy listener first
             this.startListening();
             
             this.fallbackTimeout = setTimeout(() => {
@@ -59,7 +57,6 @@ export class MotionController {
     }
     
     requestIOSPermission() {
-        console.log('📱 Requesting iOS motion permission...');
         DeviceOrientationEvent.requestPermission()
             .then(response => {
                 if (response === 'granted') {
@@ -86,15 +83,10 @@ export class MotionController {
     handleOrientation(event) {
         if (!event) return;
         
-        // ==========================================
-        // THE ANDROID NULL BUG CATCHER
-        // ==========================================
         if (event.alpha === null && event.beta === null && event.gamma === null) {
             if (!this._nullWarningShown) {
                 console.warn('⚠️ Legacy API returning NULL. Switching to Generic Sensor API...');
                 this._nullWarningShown = true;
-                
-                // Stop listening to the broken legacy API
                 if (this.boundHandleOrientation) {
                     window.removeEventListener('deviceorientation', this.boundHandleOrientation);
                 }
@@ -102,8 +94,6 @@ export class MotionController {
                     clearTimeout(this.fallbackTimeout);
                     this.fallbackTimeout = null;
                 }
-                
-                // Trigger the new API
                 this.tryGenericSensor();
             }
             return;
@@ -112,80 +102,143 @@ export class MotionController {
         if (!this.motionReceived) {
             this.motionReceived = true;
             console.log('✅ Legacy motion event received!');
-            if (this.fallbackTimeout) {
-                clearTimeout(this.fallbackTimeout);
-                this.fallbackTimeout = null;
-            }
+            if (this.fallbackTimeout) clearTimeout(this.fallbackTimeout);
         }
         
         this.processOrientation(event.alpha || 0, event.beta || 0, event.gamma || 0);
     }
     
     // ==========================================
-    // GENERIC SENSOR API (Modern Android Fix)
+    // GENERIC SENSOR API ROUTER
     // ==========================================
     tryGenericSensor() {
         if (!('AbsoluteOrientationSensor' in window)) {
-            console.error('❌ Generic Sensor API not supported on this device.');
-            this.fallbackToMouse();
+            console.warn('⚠️ No Generic Sensor API. Trying raw Accel + Mag...');
+            this.tryAccelMagFusion();
             return;
         }
         
         try {
-            console.log('📡 Starting AbsoluteOrientationSensor...');
+            console.log('📡 Trying AbsoluteOrientationSensor (Requires Gyro)...');
             const sensor = new AbsoluteOrientationSensor({ frequency: 60 });
             
             sensor.addEventListener('reading', () => {
                 if (!this.motionReceived) {
                     this.motionReceived = true;
-                    console.log('✅ Generic Sensor streaming data!');
-                    this.showStatus('Move phone to look around');
+                    console.log('✅ Gyro found! Streaming data...');
                 }
-                
-                // The Generic Sensor API returns a Quaternion (x, y, z, w)
                 const q = sensor.quaternion;
                 const euler = this.quaternionToEuler(q.x, q.y, q.z, q.w);
-                
                 this.processOrientation(euler.alpha, euler.beta, euler.gamma);
             });
             
             sensor.addEventListener('error', (event) => {
-                console.error('❌ Generic Sensor Error:', event.error.name, event.error.message);
-                this.fallbackToMouse();
+                if (event.error.name === 'NotReadableError') {
+                    console.warn('⚠️ NotReadableError: Phone has NO GYROSCOPE. Starting manual Accel + Mag math...');
+                    this.tryAccelMagFusion();
+                } else {
+                    console.error('❌ Sensor Error:', event.error.name);
+                    this.fallbackToMouse();
+                }
             });
             
             sensor.start();
-            this.isActive = true;
-            this.showStatus('Accessing motion sensors...');
-            
         } catch (error) {
-            console.error('❌ Failed to init Generic Sensor:', error);
-            this.fallbackToMouse();
+            console.warn('⚠️ Could not start AbsoluteOrientationSensor. Trying raw sensors...');
+            this.tryAccelMagFusion();
         }
     }
     
     // ==========================================
-    // MATH: Quaternion to Euler Angles
+    // THE MAGIC: MANUAL ACCEL + MAG FUSION
+    // Replaces the gyroscope with pure math
+    // ==========================================
+    tryAccelMagFusion() {
+        let accelData = { x: 0, y: 0, z: 0 };
+        let magData = { x: 0, y: 0, z: 0 };
+        let hasAccel = false, hasMag = false;
+        let fusionTimeout;
+        
+        try {
+            console.log('🧮 Starting raw Accelerometer...');
+            const accelSensor = new Accelerometer({ frequency: 60 });
+            accelSensor.addEventListener('reading', () => {
+                accelData.x = accelSensor.x;
+                accelData.y = accelSensor.y;
+                accelData.z = accelSensor.z;
+                hasAccel = true;
+                if (hasAccel && hasMag) this.calculateFusion(accelData, magData);
+            });
+            accelSensor.start();
+        } catch (e) {
+            console.error('❌ Accelerometer unavailable:', e);
+        }
+        
+        try {
+            console.log('🧭 Starting raw Magnetometer...');
+            const magSensor = new Magnetometer({ frequency: 60 });
+            magSensor.addEventListener('reading', () => {
+                magData.x = magSensor.x;
+                magData.y = magSensor.y;
+                magData.z = magSensor.z;
+                hasMag = true;
+                if (hasAccel && hasMag) this.calculateFusion(accelData, magData);
+            });
+            magSensor.start();
+        } catch (e) {
+            console.error('❌ Magnetometer unavailable:', e);
+        }
+        
+        // If neither sensor starts after 2 seconds, fall back to mouse
+        fusionTimeout = setTimeout(() => {
+            if (!hasAccel && !hasMag) {
+                console.error('❌ Raw sensors failed to start. Falling back to drag.');
+                this.fallbackToMouse();
+            }
+        }, 2000);
+    }
+    
+    calculateFusion(accel, mag) {
+        if (!this.motionReceived) {
+            this.motionReceived = true;
+            this.showStatus('Move phone to look around (Accel+Mag Mode)');
+            console.log('✅ Manual Accel + Mag fusion active!');
+        }
+        
+        // 1. PITCH & ROLL from Accelerometer (Gravity Vector)
+        const p = Math.atan2(accel.x, Math.sqrt(accel.y * accel.y + accel.z * accel.z));
+        const r = Math.atan2(accel.y, accel.z);
+        
+        const beta = p * (180 / Math.PI);          // Pitch
+        const gamma = (r * (180 / Math.PI)) - 90;  // Roll (offset -90 so flat phone = 0)
+        
+        // 2. YAW from Magnetometer with Tilt Compensation
+        // We must correct the magnetic X/Y values using the pitch/roll we just calculated
+        const Xh = mag.x * Math.cos(p) + mag.z * Math.sin(p);
+        const Yh = mag.x * Math.sin(r) * Math.sin(p) + mag.y * Math.cos(r) - mag.z * Math.sin(r) * Math.cos(p);
+        
+        let alpha = Math.atan2(-Yh, Xh) * (180 / Math.PI);
+        if (alpha < 0) alpha += 360; // Keep between 0-360
+        
+        this.processOrientation(alpha, beta, gamma);
+    }
+    
+    // ==========================================
+    // MATH: Quaternion to Euler (For phones WITH gyro)
     // ==========================================
     quaternionToEuler(x, y, z, w) {
-        // Convert Quaternion to standard Euler angles (Yaw, Pitch, Roll)
         let sinr_cosp = 2 * (w * x + y * z);
         let cosr_cosp = 1 - 2 * (x * x + y * y);
-        let roll  = Math.atan2(sinr_cosp, cosr_cosp); // Gamma (tilt left/right)
+        let roll  = Math.atan2(sinr_cosp, cosr_cosp);
         
         let sinp = 2 * (w * y - z * x);
-        // Clamp to handle edge cases
-        if (Math.abs(sinp) >= 1) {
-            sinp = Math.sign(sinp);
-        }
-        let pitch = Math.asin(sinp); // Beta (tilt forward/back)
+        if (Math.abs(sinp) >= 1) sinp = Math.sign(sinp);
+        let pitch = Math.asin(sinp);
         
         let siny_cosp = 2 * (w * z + x * y);
         let cosy_cosp = 1 - 2 * (y * y + z * z);
-        let yaw = Math.atan2(siny_cosp, cosy_cosp); // Alpha (compass heading)
+        let yaw = Math.atan2(siny_cosp, cosy_cosp);
         
-        // Convert Radians to Degrees
-        // Note: +180 on alpha aligns the generic sensor coordinate system with the legacy one
         return {
             alpha: (yaw * (180 / Math.PI)) + 180,
             beta: pitch * (180 / Math.PI),
@@ -197,21 +250,18 @@ export class MotionController {
     // SHARED ORIENTATION PROCESSING
     // ==========================================
     processOrientation(rawAlpha, beta, gamma) {
-        // Calibrate on first real reading
         if (!this.calibrated && rawAlpha !== 0) {
             this.calAlpha = rawAlpha;
             this.calibrated = true;
             console.log('🧭 Calibrated to:', this.calAlpha.toFixed(1));
         }
         
-        // Apply calibration offset with wrapping
         let alpha = rawAlpha - this.calAlpha;
         if (alpha < -180) alpha += 360;
         if (alpha > 180) alpha -= 360;
         
         this.orientation = { alpha, beta, gamma };
         
-        // false = not instant (scene will apply smoothing)
         if (this.onUpdate) {
             this.onUpdate({ alpha, beta, gamma }, false);
         }
@@ -228,7 +278,7 @@ export class MotionController {
     // MOUSE / TOUCH FALLBACK
     // ==========================================
     fallbackToMouse() {
-        if (this.useFallback) return; // Prevent double-binding
+        if (this.useFallback) return; 
         this.useFallback = true;
         this.isActive = true;
         this.showStatus('Drag to look around');
@@ -248,11 +298,9 @@ export class MotionController {
         const onMove = (e) => {
             if (!isDragging) return;
             const p = e.touches ? e.touches[0] : e;
-            
             rotX -= (p.clientX - lastX) * 0.4;
             rotY -= (p.clientY - lastY) * 0.4;
             rotY = Math.max(-85, Math.min(85, rotY));
-            
             lastX = p.clientX; lastY = p.clientY;
             this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true);
         };
@@ -268,11 +316,7 @@ export class MotionController {
                 case 'ArrowRight': rotX -= 5; this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true); e.preventDefault(); break;
                 case 'ArrowUp': rotY += 3; rotY = Math.max(-85, Math.min(85, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true); e.preventDefault(); break;
                 case 'ArrowDown': rotY -= 3; rotY = Math.max(-85, Math.min(85, rotY)); this.onUpdate({ alpha: rotX, beta: rotY, gamma: 0 }, true); e.preventDefault(); break;
-                case 'r': case 'R': 
-                    rotX = 0; rotY = 0; 
-                    this.onUpdate({ alpha: 0, beta: 0, gamma: 0 }, true); 
-                    e.preventDefault(); 
-                    break;
+                case 'r': case 'R': rotX = 0; rotY = 0; this.onUpdate({ alpha: 0, beta: 0, gamma: 0 }, true); e.preventDefault(); break;
             }
         };
         
